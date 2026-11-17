@@ -2,7 +2,7 @@
 // Service Worker do Pauta — Cache estático para funcionamento offline da UI
 // ============================================================================
 
-const CACHE_NAME = 'pauta-shell-v5';
+const CACHE_NAME = 'pauta-shell-v6';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
