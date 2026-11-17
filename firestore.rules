@@ -1,0 +1,184 @@
+rules_version = '2';
+
+// ===============================================================
+// Modelo de Dados Assumido (App "Pauta" - Assistente de Demandas)
+// ===============================================================
+//
+// Coleção: users/{uid}/demandas/{demandaId}
+//   - titulo: string (obrigatório, 1..120 caracteres)
+//   - descricao: string (obrigatório, 0..5000 caracteres)
+//   - prioridade: string (obrigatório, 'baixa' | 'media' | 'alta' | 'urgente')
+//   - prazo: null | string (obrigatório, máx. 25 caracteres)
+//   - categoria: null | string (obrigatório, máx. 80 caracteres)
+//   - status: string (obrigatório, 'pendente' | 'em_andamento' | 'concluida')
+//   - origem: string (obrigatório, 'voz' | 'texto')
+//   - textoOriginal: string (obrigatório, 0..5000 caracteres)
+//   - criadoEm: timestamp (obrigatório, imutável após criação)
+//   - atualizadoEm: timestamp (obrigatório)
+//   - concluidoEm: null | timestamp (obrigatório)
+//
+// Coleção: users/{uid}/configuracoes/{docId}
+//   Quando docId == 'preferencias':
+//   - salvarDiretoSemPrevia: bool
+//   - silenciarResumoFalado: bool
+//   - intervaloLembreteMinutos: number (1..1440)
+//   - diasAvisoAmarelo: number (1..365)
+//   - diasAvisoLaranja: number (1..365)
+//   - diasAvisoVermelho: number (1..365)
+//   - tema: string ('sistema' | 'claro' | 'escuro')
+//
+// ===============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Funções Auxiliares (Helpers)
+    // ===============================================================
+
+    // Verifica se o usuário está autenticado
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Verifica se o usuário autenticado é o proprietário do caminho (uid)
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Verifica se todos os campos obrigatórios estão presentes no documento
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    // Verifica se o documento contém apenas os campos permitidos (evita injeção de campos extras)
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // Valida se o campo é uma string com tamanho dentro do intervalo [minLen, maxLen]
+    function validStringLength(field, minLen, maxLen) {
+      return request.resource.data[field] is string &&
+             request.resource.data[field].size() >= minLen &&
+             request.resource.data[field].size() <= maxLen;
+    }
+
+    // Garante que campos imutáveis não sejam alterados em operações de atualização
+    function areImmutableFieldsUnchanged(fields) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    }
+
+    // ===============================================================
+    // Validadores de Domínio
+    // ===============================================================
+
+    // Valida a estrutura completa de uma demanda (usado em create e update)
+    function isValidDemanda(data) {
+      let allowedFields = [
+        'titulo',
+        'descricao',
+        'prioridade',
+        'prazo',
+        'categoria',
+        'status',
+        'origem',
+        'textoOriginal',
+        'criadoEm',
+        'atualizadoEm',
+        'concluidoEm'
+      ];
+
+      return hasRequiredFields(allowedFields) &&
+             hasOnlyAllowedFields(allowedFields) &&
+             validStringLength('titulo', 1, 120) &&
+             validStringLength('descricao', 0, 5000) &&
+             data.prioridade is string &&
+             data.prioridade in ['baixa', 'media', 'alta', 'urgente'] &&
+             (data.prazo == null || (data.prazo is string && data.prazo.size() <= 25)) &&
+             (data.categoria == null || (data.categoria is string && data.categoria.size() <= 80)) &&
+             data.status is string &&
+             data.status in ['pendente', 'em_andamento', 'concluida'] &&
+             data.origem is string &&
+             data.origem in ['voz', 'texto'] &&
+             validStringLength('textoOriginal', 0, 5000) &&
+             data.criadoEm is timestamp &&
+             data.atualizadoEm is timestamp &&
+             (data.concluidoEm == null || data.concluidoEm is timestamp);
+    }
+
+    // Valida os campos do documento 'preferencias' (suporta criação e atualizações parciais com merge)
+    function isValidPreferencias(data) {
+      let allowedFields = [
+        'salvarDiretoSemPrevia',
+        'silenciarResumoFalado',
+        'intervaloLembreteMinutos',
+        'diasAvisoAmarelo',
+        'diasAvisoLaranja',
+        'diasAvisoVermelho',
+        'tema'
+      ];
+
+      return hasOnlyAllowedFields(allowedFields) &&
+             (!('salvarDiretoSemPrevia' in data) || data.salvarDiretoSemPrevia is bool) &&
+             (!('silenciarResumoFalado' in data) || data.silenciarResumoFalado is bool) &&
+             (!('intervaloLembreteMinutos' in data) || (
+               data.intervaloLembreteMinutos is number &&
+               data.intervaloLembreteMinutos >= 1 &&
+               data.intervaloLembreteMinutos <= 1440
+             )) &&
+             (!('diasAvisoAmarelo' in data) || (
+               data.diasAvisoAmarelo is number &&
+               data.diasAvisoAmarelo >= 1 &&
+               data.diasAvisoAmarelo <= 365
+             )) &&
+             (!('diasAvisoLaranja' in data) || (
+               data.diasAvisoLaranja is number &&
+               data.diasAvisoLaranja >= 1 &&
+               data.diasAvisoLaranja <= 365
+             )) &&
+             (!('diasAvisoVermelho' in data) || (
+               data.diasAvisoVermelho is number &&
+               data.diasAvisoVermelho >= 1 &&
+               data.diasAvisoVermelho <= 365
+             )) &&
+             (!('tema' in data) || (
+               data.tema is string &&
+               data.tema in ['sistema', 'claro', 'escuro']
+             ));
+    }
+
+    // Valida documentos de configuração do usuário
+    function isValidConfiguracao(docId, data) {
+      return docId == 'preferencias'
+        ? isValidPreferencias(data)
+        : data.keys().size() <= 30;
+    }
+
+    // ===============================================================
+    // Regras de Acesso por Coleção
+    // ===============================================================
+
+    // Demandas do usuário: apenas o próprio usuário autenticado pode ler e gerenciar
+    match /users/{uid}/demandas/{demandaId} {
+      allow read: if isOwner(uid);
+      allow create: if isOwner(uid) && isValidDemanda(request.resource.data);
+      allow update: if isOwner(uid) &&
+                       isValidDemanda(request.resource.data) &&
+                       areImmutableFieldsUnchanged(['criadoEm']);
+      allow delete: if isOwner(uid);
+    }
+
+    // Configurações do usuário: apenas o próprio usuário autenticado pode ler e gerenciar
+    match /users/{uid}/configuracoes/{docId} {
+      allow read: if isOwner(uid);
+      allow create: if isOwner(uid) && isValidConfiguracao(docId, request.resource.data);
+      allow update: if isOwner(uid) && isValidConfiguracao(docId, request.resource.data);
+      allow delete: if isOwner(uid);
+    }
+
+    // Negação padrão: bloqueia leitura e escrita em qualquer outro caminho não especificado
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

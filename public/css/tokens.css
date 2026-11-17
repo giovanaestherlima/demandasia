@@ -1,0 +1,123 @@
+/* ==========================================================================
+   Pauta — Tokens de Design (Cores, Tipografia, Espaçamentos e Sombras)
+   ========================================================================== */
+
+:root {
+  /* Paleta Clara (padrão) */
+  --bg: #F6F4EF;
+  --surface: #FFFFFF;
+  --surface-alt: #EDEAE1;
+  --text: #1E232B;
+  --text-muted: #525B68;
+  --border: rgba(30, 35, 43, 0.12);
+  --border-strong: rgba(30, 35, 43, 0.24);
+
+  /* Ação principal e destaque de voz */
+  --primary: #1F6F78;
+  --primary-hover: #175860;
+  --primary-soft: rgba(31, 111, 120, 0.12);
+  --primary-contrast: #FFFFFF;
+
+  --voice: #FF6B5B;
+  --voice-hover: #E65949;
+  --voice-glow: rgba(255, 107, 91, 0.35);
+  --voice-contrast: #FFFFFF;
+
+  /* Estados semânticos */
+  --warn: #E9B44C;
+  --warn-bg: rgba(233, 180, 76, 0.16);
+  --warn-text: #7A540C;
+
+  --attention: #F08A3C;
+  --attention-bg: rgba(240, 138, 60, 0.16);
+  --attention-text: #8A430D;
+
+  --critical: #D64545;
+  --critical-bg: rgba(214, 69, 69, 0.14);
+  --critical-text: #962121;
+
+  --done: #4F9D69;
+  --done-bg: rgba(79, 157, 105, 0.15);
+  --done-text: #27613B;
+
+  /* Tipografia */
+  --font-display: 'Fraunces', Georgia, serif;
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+  /* Raios e sombras */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-full: 9999px;
+
+  --shadow-sm: 0 2px 8px rgba(30, 35, 43, 0.05);
+  --shadow-md: 0 8px 24px rgba(30, 35, 43, 0.08);
+  --shadow-voice: 0 10px 28px rgba(255, 107, 91, 0.32);
+
+  /* Transições */
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --duration-fast: 160ms;
+  --duration-normal: 240ms;
+}
+
+/* Tema Escuro automático pelo sistema (quando não forçado para claro) */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="claro"]) {
+    --bg: #14171C;
+    --surface: #1C2128;
+    --surface-alt: #252B34;
+    --text: #ECE9E2;
+    --text-muted: #A7AFB9;
+    --border: rgba(236, 233, 226, 0.12);
+    --border-strong: rgba(236, 233, 226, 0.25);
+
+    --primary: #2D8E99;
+    --primary-hover: #38A3B0;
+    --primary-soft: rgba(45, 142, 153, 0.18);
+
+    --warn-bg: rgba(233, 180, 76, 0.16);
+    --warn-text: #F5CD79;
+
+    --attention-bg: rgba(240, 138, 60, 0.16);
+    --attention-text: #F7AD72;
+
+    --critical-bg: rgba(214, 69, 69, 0.18);
+    --critical-text: #F48B8B;
+
+    --done-bg: rgba(79, 157, 105, 0.18);
+    --done-text: #85D09E;
+
+    --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.25);
+    --shadow-md: 0 10px 28px rgba(0, 0, 0, 0.38);
+  }
+}
+
+/* Tema Escuro forçado manualmente */
+:root[data-theme="escuro"] {
+  --bg: #14171C;
+  --surface: #1C2128;
+  --surface-alt: #252B34;
+  --text: #ECE9E2;
+  --text-muted: #A7AFB9;
+  --border: rgba(236, 233, 226, 0.12);
+  --border-strong: rgba(236, 233, 226, 0.25);
+
+  --primary: #2D8E99;
+  --primary-hover: #38A3B0;
+  --primary-soft: rgba(45, 142, 153, 0.18);
+
+  --warn-bg: rgba(233, 180, 76, 0.16);
+  --warn-text: #F5CD79;
+
+  --attention-bg: rgba(240, 138, 60, 0.16);
+  --attention-text: #F7AD72;
+
+  --critical-bg: rgba(214, 69, 69, 0.18);
+  --critical-text: #F48B8B;
+
+  --done-bg: rgba(79, 157, 105, 0.18);
+  --done-text: #85D09E;
+
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.25);
+  --shadow-md: 0 10px 28px rgba(0, 0, 0, 0.38);
+}
