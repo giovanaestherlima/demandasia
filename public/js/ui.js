@@ -1,5 +1,5 @@
 // ============================================================================
-// Renderização da Interface, Filtros, Busca, Tema e Notificações In-App
+// Renderização da Interface (DOM seguro), Filtros, Subtarefas, Etiquetas e Toasts
 // ============================================================================
 
 import {
@@ -7,9 +7,12 @@ import {
   getDaysOpen,
   getPendingOldestFirst,
   getUrgencyLevel,
+  isDueToday,
   isOverdue,
-  toDate
-} from './alerts.js';
+  isSnoozed,
+  toDate,
+  todayLocalISO
+} from './alerts.js?v=5';
 
 const PESO_PRIORIDADE = {
   urgente: 4,
@@ -25,10 +28,28 @@ const LABEL_PRIORIDADE = {
   baixa: 'Baixa'
 };
 
-/**
- * Aplica o tema ('sistema' | 'claro' | 'escuro') no elemento raiz.
- * @param {string} tema
- */
+const LABEL_RECORRENCIA = {
+  diaria: 'Diária',
+  semanal: 'Semanal',
+  mensal: 'Mensal',
+  dia_mes: 'Mensal (dia fixo)'
+};
+
+const TAG_PALETTE = [
+  { bg: 'rgba(31, 111, 120, 0.14)', fg: 'var(--primary)' },
+  { bg: 'rgba(240, 138, 60, 0.16)', fg: 'var(--attention-text)' },
+  { bg: 'rgba(79, 157, 105, 0.16)', fg: 'var(--done-text)' },
+  { bg: 'rgba(233, 180, 76, 0.18)', fg: 'var(--warn-text)' }
+];
+
+function getTagColors(tag) {
+  let hash = 0;
+  for (let i = 0; i < tag.length; i += 1) {
+    hash = (hash * 31 + tag.charCodeAt(i)) >>> 0;
+  }
+  return TAG_PALETTE[hash % TAG_PALETTE.length];
+}
+
 export function applyTheme(tema) {
   if (tema === 'claro' || tema === 'escuro') {
     document.documentElement.dataset.theme = tema;
@@ -37,31 +58,18 @@ export function applyTheme(tema) {
   }
 }
 
-/**
- * Formata data ISO (YYYY-MM-DD) para DD/MM/AAAA.
- * @param {string} iso
- */
-function formatDateBR(iso) {
+export function formatDateBR(iso) {
   if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso || '';
   const [y, m, d] = iso.split('-');
   return `${d}/${m}/${y}`;
 }
 
-/**
- * Formata texto de idade da demanda ("hoje", "há 1 dia", "há X dias").
- * @param {number} dias
- */
 function formatDaysLabel(dias) {
   if (dias === 0) return 'criada hoje';
   if (dias === 1) return 'há 1 dia';
   return `há ${dias} dias`;
 }
 
-/**
- * Cria um badge seguro (sem innerHTML).
- * @param {string} texto
- * @param {string} classeExtra
- */
 function createBadge(texto, classeExtra = '') {
   const span = document.createElement('span');
   span.className = `badge ${classeExtra}`.trim();
@@ -69,11 +77,26 @@ function createBadge(texto, classeExtra = '') {
   return span;
 }
 
-/**
- * Renderiza o painel "Atenção" no topo com as demandas pendentes mais críticas/antigas.
- * @param {Array<object>} demandas
- * @param {object} prefs
- */
+export function renderLoadingSkeletons(container) {
+  container.replaceChildren();
+  for (let i = 0; i < 3; i += 1) {
+    const card = document.createElement('div');
+    card.className = 'skeleton-card';
+    card.setAttribute('aria-hidden', 'true');
+    const l1 = document.createElement('div');
+    l1.className = 'skeleton-line';
+    l1.style.width = '65%';
+    const l2 = document.createElement('div');
+    l2.className = 'skeleton-line';
+    l2.style.width = '90%';
+    const l3 = document.createElement('div');
+    l3.className = 'skeleton-line';
+    l3.style.width = '40%';
+    card.append(l1, l2, l3);
+    container.appendChild(card);
+  }
+}
+
 export function renderAttentionPanel(demandas, prefs) {
   const panel = document.getElementById('attention-panel');
   const summaryEl = document.getElementById('attention-summary');
@@ -92,13 +115,13 @@ export function renderAttentionPanel(demandas, prefs) {
 
   panel.classList.remove('is-calm');
 
-  const pendentes = getPendingOldestFirst(demandas);
-  const alertas = pendentes.filter((d) => getUrgencyLevel(d, prefs) !== 'normal');
+  const pendentesAtivas = getPendingOldestFirst(demandas).filter((d) => !isSnoozed(d));
+  const alertas = pendentesAtivas.filter((d) => getUrgencyLevel(d, prefs) !== 'normal');
   const hasCritical = alertas.some((d) => getUrgencyLevel(d, prefs) === 'critical');
 
   panel.classList.toggle('is-critical', hasCritical);
 
-  const destaque = (alertas.length > 0 ? alertas : pendentes).slice(0, 4);
+  const destaque = (alertas.length > 0 ? alertas : pendentesAtivas).slice(0, 4);
   listEl.classList.remove('hidden');
 
   for (const item of destaque) {
@@ -129,18 +152,34 @@ export function renderAttentionPanel(demandas, prefs) {
   }
 }
 
-/**
- * Filtra e ordena a lista de demandas conforme os controles atuais.
- */
-export function filterAndSortDemandas(demandas, { filter, search, sort }) {
+function endOfWeekISO() {
+  const d = new Date();
+  d.setDate(d.getDate() + 7);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+export function filterAndSortDemandas(demandas, { filter, search, sort, tag }) {
   const termo = String(search || '').trim().toLowerCase();
+  const hoje = todayLocalISO();
+  const fimSemana = endOfWeekISO();
 
   const filtradas = demandas.filter((d) => {
-    if (filter === 'pendentes' && d.status === 'concluida') return false;
-    if (filter === 'concluidas' && d.status !== 'concluida') return false;
+    const isDone = d.status === 'concluida';
+    if (filter === 'pendentes' && isDone) return false;
+    if (filter === 'concluidas' && !isDone) return false;
+    if (filter === 'hoje' && (isDone || !isDueToday(d))) return false;
+    if (filter === 'semana' && (isDone || !d.prazo || d.prazo < hoje || d.prazo > fimSemana)) return false;
+    if (filter === 'atrasadas' && (isDone || !isOverdue(d))) return false;
+    if (filter === 'sem_prazo' && (isDone || Boolean(d.prazo))) return false;
+
+    if (tag && !(d.etiquetas || []).includes(tag)) return false;
 
     if (termo) {
-      const alvo = `${d.titulo} ${d.descricao} ${d.categoria || ''}`.toLowerCase();
+      const tagsTxt = (d.etiquetas || []).join(' ');
+      const alvo = `${d.titulo} ${d.descricao} ${d.categoria || ''} ${tagsTxt}`.toLowerCase();
       if (!alvo.includes(termo)) return false;
     }
     return true;
@@ -160,23 +199,59 @@ export function filterAndSortDemandas(demandas, { filter, search, sort }) {
       if (!b.prazo) return -1;
       return a.prazo.localeCompare(b.prazo);
     }
-    // Padrão: mais antigas primeiro
     return toDate(a.criadoEm).getTime() - toDate(b.criadoEm).getTime();
   });
 
   return filtradas;
 }
 
-/**
- * Renderiza os cards de demandas na tela.
- */
+export function renderTagFilterChips(container, demandas, activeTag, onSelectTag) {
+  container.replaceChildren();
+  const tags = new Set();
+  for (const d of demandas) {
+    for (const t of d.etiquetas || []) {
+      tags.add(t);
+    }
+  }
+  if (tags.size === 0) {
+    container.classList.add('hidden');
+    return;
+  }
+  container.classList.remove('hidden');
+
+  const allBtn = document.createElement('button');
+  allBtn.type = 'button';
+  allBtn.className = 'tag-chip';
+  allBtn.textContent = 'Todas etiquetas';
+  allBtn.setAttribute('aria-pressed', String(!activeTag));
+  allBtn.addEventListener('click', () => onSelectTag(null));
+  container.appendChild(allBtn);
+
+  for (const t of Array.from(tags).sort()) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'tag-chip';
+    btn.textContent = `#${t}`;
+    btn.setAttribute('aria-pressed', String(activeTag === t));
+    btn.addEventListener('click', () => onSelectTag(activeTag === t ? null : t));
+    container.appendChild(btn);
+  }
+}
+
 export function renderDemandsList(container, demandas, prefs, handlers) {
   container.replaceChildren();
 
   if (demandas.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'empty-state';
-    empty.textContent = 'Nenhuma demanda encontrada para este filtro.';
+    empty.innerHTML = `
+      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-bottom:0.5rem;opacity:0.7;">
+        <circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/>
+      </svg>
+    `;
+    const msg = document.createElement('p');
+    msg.textContent = 'Nenhuma pendência. Respire.';
+    empty.appendChild(msg);
     container.appendChild(empty);
     return;
   }
@@ -186,7 +261,6 @@ export function renderDemandsList(container, demandas, prefs, handlers) {
     const card = document.createElement('article');
     card.className = `demand-card ${isDone ? 'is-done' : ''}`.trim();
 
-    // Linha superior: botão de concluir + título + ações
     const top = document.createElement('div');
     top.className = 'demand-top';
 
@@ -212,6 +286,16 @@ export function renderDemandsList(container, demandas, prefs, handlers) {
     const actions = document.createElement('div');
     actions.className = 'demand-actions';
 
+    if (!isDone) {
+      const snoozeBtn = document.createElement('button');
+      snoozeBtn.type = 'button';
+      snoozeBtn.className = 'btn btn-ghost btn-sm';
+      snoozeBtn.textContent = 'Adiar';
+      snoozeBtn.setAttribute('aria-label', `Adiar alertas da demanda ${d.titulo}`);
+      snoozeBtn.addEventListener('click', () => handlers.onSnooze(d));
+      actions.appendChild(snoozeBtn);
+    }
+
     const editBtn = document.createElement('button');
     editBtn.type = 'button';
     editBtn.className = 'btn btn-ghost btn-sm';
@@ -230,7 +314,6 @@ export function renderDemandsList(container, demandas, prefs, handlers) {
     top.append(checkWrap, actions);
     card.appendChild(top);
 
-    // Descrição resumida
     if (d.descricao) {
       const desc = document.createElement('p');
       desc.className = 'demand-desc';
@@ -238,7 +321,25 @@ export function renderDemandsList(container, demandas, prefs, handlers) {
       card.appendChild(desc);
     }
 
-    // Metadados (prioridade, prazo, categoria, idade)
+    // Barra de progresso das subtarefas
+    const subs = Array.isArray(d.subtarefas) ? d.subtarefas : [];
+    if (subs.length > 0) {
+      const doneSubs = subs.filter((s) => s.concluida).length;
+      const pct = Math.round((doneSubs / subs.length) * 100);
+      const prog = document.createElement('div');
+      prog.className = 'subtasks-progress';
+      const track = document.createElement('div');
+      track.className = 'progress-track';
+      const fill = document.createElement('div');
+      fill.className = 'progress-fill';
+      fill.style.width = `${pct}%`;
+      track.appendChild(fill);
+      const lbl = document.createElement('span');
+      lbl.textContent = `${doneSubs}/${subs.length} subtarefas`;
+      prog.append(track, lbl);
+      card.appendChild(prog);
+    }
+
     const meta = document.createElement('div');
     meta.className = 'demand-meta';
 
@@ -270,6 +371,22 @@ export function renderDemandsList(container, demandas, prefs, handlers) {
       meta.appendChild(createBadge(d.categoria));
     }
 
+    if (d.recorrencia?.tipo) {
+      meta.appendChild(createBadge(`↻ ${LABEL_RECORRENCIA[d.recorrencia.tipo] || 'Recorrente'}`, 'badge-primary'));
+    }
+
+    if (isSnoozed(d)) {
+      meta.appendChild(createBadge(`Soneca até ${formatDateBR(d.adiadoAte)}`));
+    }
+
+    for (const tag of d.etiquetas || []) {
+      const colors = getTagColors(tag);
+      const tagBadge = createBadge(`#${tag}`);
+      tagBadge.style.backgroundColor = colors.bg;
+      tagBadge.style.color = colors.fg;
+      meta.appendChild(tagBadge);
+    }
+
     if (isDone) {
       meta.appendChild(createBadge('Concluída', 'badge-done'));
     } else {
@@ -292,11 +409,9 @@ export function renderDemandsList(container, demandas, prefs, handlers) {
 }
 
 /**
- * Exibe uma notificação temporária (toast) na tela.
- * @param {string} message
- * @param {number} durationMs
+ * Exibe toast com botão opcional de "Desfazer" (~6 segundos).
  */
-export function showToast(message, durationMs = 4500) {
+export function showToast(message, durationMs = 5000, onUndo = null) {
   const container = document.getElementById('toast-container');
   const toast = document.createElement('div');
   toast.className = 'toast';
@@ -305,14 +420,30 @@ export function showToast(message, durationMs = 4500) {
   const span = document.createElement('span');
   span.textContent = message;
 
+  const actions = document.createElement('div');
+  actions.className = 'toast-actions';
+
+  if (typeof onUndo === 'function') {
+    const undoBtn = document.createElement('button');
+    undoBtn.type = 'button';
+    undoBtn.className = 'btn btn-primary btn-sm';
+    undoBtn.textContent = 'Desfazer';
+    undoBtn.addEventListener('click', () => {
+      toast.remove();
+      onUndo();
+    });
+    actions.appendChild(undoBtn);
+  }
+
   const closeBtn = document.createElement('button');
   closeBtn.type = 'button';
   closeBtn.className = 'btn btn-ghost btn-sm';
   closeBtn.style.color = 'inherit';
   closeBtn.textContent = 'Fechar';
   closeBtn.addEventListener('click', () => toast.remove());
+  actions.appendChild(closeBtn);
 
-  toast.append(span, closeBtn);
+  toast.append(span, actions);
   container.appendChild(toast);
 
   setTimeout(() => {

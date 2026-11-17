@@ -1,14 +1,9 @@
 // ============================================================================
-// Lógica de Alertas, Criticidade, Resumo e Lembretes Periódicos
+// Lógica de Alertas, Soneca, Horário de Silêncio, Bom Dia e Lembretes Locais
 // ============================================================================
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
-/**
- * Converte timestamp do Firestore ou Date para Date JS.
- * @param {any} ts
- * @returns {Date}
- */
 export function toDate(ts) {
   if (!ts) return new Date();
   if (typeof ts.toDate === 'function') return ts.toDate();
@@ -16,36 +11,37 @@ export function toDate(ts) {
   return new Date(ts);
 }
 
-/**
- * Calcula há quantos dias a demanda foi criada.
- * @param {object} demanda
- * @returns {number}
- */
+export function todayLocalISO() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 export function getDaysOpen(demanda) {
   const created = toDate(demanda.criadoEm);
   const diff = Date.now() - created.getTime();
   return Math.max(0, Math.floor(diff / MS_PER_DAY));
 }
 
-/**
- * Verifica se a demanda pendente está com o prazo vencido.
- * @param {object} demanda
- * @returns {boolean}
- */
-export function isOverdue(demanda) {
-  if (!demanda.prazo || demanda.status === 'concluida') return false;
-  const hojeISO = new Date().toISOString().slice(0, 10);
-  return demanda.prazo < hojeISO;
+export function isSnoozed(demanda) {
+  if (!demanda.adiadoAte || demanda.status === 'concluida') return false;
+  return demanda.adiadoAte > todayLocalISO();
 }
 
-/**
- * Determina o nível de alerta de uma demanda pendente:
- * 'critical' (vermelho), 'attention' (laranja), 'warn' (amarelo) ou 'normal'.
- * @param {object} demanda
- * @param {object} prefs
- */
+export function isOverdue(demanda) {
+  if (!demanda.prazo || demanda.status === 'concluida') return false;
+  return demanda.prazo < todayLocalISO();
+}
+
+export function isDueToday(demanda) {
+  if (!demanda.prazo || demanda.status === 'concluida') return false;
+  return demanda.prazo === todayLocalISO();
+}
+
 export function getUrgencyLevel(demanda, prefs) {
-  if (demanda.status === 'concluida') return 'normal';
+  if (demanda.status === 'concluida' || isSnoozed(demanda)) return 'normal';
   if (isOverdue(demanda)) return 'critical';
 
   const dias = getDaysOpen(demanda);
@@ -55,26 +51,17 @@ export function getUrgencyLevel(demanda, prefs) {
   return 'normal';
 }
 
-/**
- * Retorna as demandas pendentes (inclui 'pendente' e 'em_andamento') ordenadas da mais antiga para a mais nova.
- * @param {Array<object>} demandas
- */
 export function getPendingOldestFirst(demandas) {
   return demandas
     .filter((d) => d.status !== 'concluida')
     .sort((a, b) => toDate(a.criadoEm).getTime() - toDate(b.criadoEm).getTime());
 }
 
-/**
- * Gera o texto do resumo de abertura para exibição e leitura falada.
- * @param {Array<object>} demandas
- * @returns {{ text: string, pendingCount: number, oldest: object | null }}
- */
 export function buildSummaryMessage(demandas) {
-  const pendentes = getPendingOldestFirst(demandas);
+  const pendentes = getPendingOldestFirst(demandas).filter((d) => !isSnoozed(d));
   if (pendentes.length === 0) {
     return {
-      text: 'Você não tem demandas pendentes no momento. Tudo em ordem.',
+      text: 'Você não tem demandas pendentes ativas no momento. Tudo em ordem.',
       pendingCount: 0,
       oldest: null
     };
@@ -93,28 +80,78 @@ export function buildSummaryMessage(demandas) {
 }
 
 /**
- * Solicita permissão para notificações nativas do navegador.
- * @returns {Promise<NotificationPermission | 'unsupported'>}
+ * Monta o resumo diário "Bom dia" (vence hoje, atrasadas e mais antiga).
  */
+export function buildMorningSummary(demandas) {
+  const pendentes = getPendingOldestFirst(demandas).filter((d) => !isSnoozed(d));
+  const hoje = pendentes.filter(isDueToday);
+  const atrasadas = pendentes.filter(isOverdue);
+  const maisAntiga = pendentes[0] || null;
+
+  const partes = [];
+  if (pendentes.length === 0) {
+    partes.push('Bom dia! Nenhuma pendência ativa no momento. Respire tranquilo.');
+  } else {
+    partes.push(`Bom dia! Você tem ${pendentes.length} pendência(s) ativa(s).`);
+    if (hoje.length > 0) {
+      partes.push(`${hoje.length} vence(m) hoje.`);
+    }
+    if (atrasadas.length > 0) {
+      partes.push(`${atrasadas.length} está(ão) atrasada(s).`);
+    }
+    if (maisAntiga) {
+      const dias = getDaysOpen(maisAntiga);
+      partes.push(`A mais antiga é "${maisAntiga.titulo}" (há ${dias} dia${dias === 1 ? '' : 's'}).`);
+    }
+  }
+
+  return {
+    text: partes.join(' '),
+    pendentes,
+    hoje,
+    atrasadas,
+    maisAntiga
+  };
+}
+
+export function isInQuietHours(prefs) {
+  const inicio = prefs.horarioSilencioInicio;
+  const fim = prefs.horarioSilencioFim;
+  if (!inicio || !fim) return false;
+
+  const agora = new Date();
+  const hhmm = `${String(agora.getHours()).padStart(2, '0')}:${String(agora.getMinutes()).padStart(2, '0')}`;
+
+  if (inicio <= fim) {
+    return hhmm >= inicio && hhmm < fim;
+  }
+  // Atravessa a meia-noite (ex: 22:00 até 08:00)
+  return hhmm >= inicio || hhmm < fim;
+}
+
 export async function requestBrowserNotificationPermission() {
-  if (!('Notification' in window)) {
-    return 'unsupported';
-  }
-  if (Notification.permission === 'granted') {
-    return 'granted';
-  }
+  if (!('Notification' in window)) return 'unsupported';
+  if (Notification.permission === 'granted') return 'granted';
   return Notification.requestPermission();
 }
 
 /**
- * Gerencia o timer de lembretes periódicos enquanto a aba estiver aberta.
+ * Gerenciador de lembretes locais com respeito à soneca, horário de silêncio e limite/hora.
  */
 export function createReminderScheduler(getDemandas, getPrefs, onInAppReminder) {
   let timerId = null;
+  let sentTimestamps = [];
 
   function trigger() {
-    const demandas = getDemandas();
     const prefs = getPrefs();
+    if (isInQuietHours(prefs)) return;
+
+    const umaHoraAtras = Date.now() - 60 * 60 * 1000;
+    sentTimestamps = sentTimestamps.filter((ts) => ts > umaHoraAtras);
+    const limite = Math.max(1, Number(prefs.limiteLembretesHora || 4));
+    if (sentTimestamps.length >= limite) return;
+
+    const demandas = getDemandas();
     const { text, pendingCount } = buildSummaryMessage(demandas);
     if (pendingCount === 0) return;
 
@@ -126,12 +163,11 @@ export function createReminderScheduler(getDemandas, getPrefs, onInAppReminder) 
       ? `Lembrete Pauta: ${attentionItems.length} demanda(s) pedindo atenção. ${text}`
       : `Lembrete Pauta: ${text}`;
 
+    sentTimestamps.push(Date.now());
     onInAppReminder?.(mensagem);
 
     if ('Notification' in window && Notification.permission === 'granted') {
-      new Notification('Pauta — Lembrete de Demandas', {
-        body: mensagem
-      });
+      new Notification('Pauta — Lembrete de Demandas', { body: mensagem });
     }
   }
 

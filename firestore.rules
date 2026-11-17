@@ -5,6 +5,7 @@ rules_version = '2';
 // ===============================================================
 //
 // Coleção: users/{uid}/demandas/{demandaId}
+//   Campos obrigatórios:
 //   - titulo: string (obrigatório, 1..120 caracteres)
 //   - descricao: string (obrigatório, 0..5000 caracteres)
 //   - prioridade: string (obrigatório, 'baixa' | 'media' | 'alta' | 'urgente')
@@ -16,9 +17,15 @@ rules_version = '2';
 //   - criadoEm: timestamp (obrigatório, imutável após criação)
 //   - atualizadoEm: timestamp (obrigatório)
 //   - concluidoEm: null | timestamp (obrigatório)
+//   Campos opcionais:
+//   - subtarefas: list (opcional, máx. 50 itens)
+//   - adiadoAte: null | string (opcional, máx. 25 caracteres)
+//   - recorrencia: null | map (opcional, se map, tipo in ['nenhuma', 'diaria', 'semanal', 'mensal', 'dia_mes'])
+//   - etiquetas: list (opcional, máx. 20 itens)
+//   - historico: list (opcional, máx. 100 itens)
 //
 // Coleção: users/{uid}/configuracoes/{docId}
-//   Quando docId == 'preferencias':
+//   Quando docId == 'preferencias' (suporta escrita parcial / merge):
 //   - salvarDiretoSemPrevia: bool
 //   - silenciarResumoFalado: bool
 //   - intervaloLembreteMinutos: number (1..1440)
@@ -26,6 +33,9 @@ rules_version = '2';
 //   - diasAvisoLaranja: number (1..365)
 //   - diasAvisoVermelho: number (1..365)
 //   - tema: string ('sistema' | 'claro' | 'escuro')
+//   - horarioSilencioInicio: string (máx. 10 caracteres)
+//   - horarioSilencioFim: string (máx. 10 caracteres)
+//   - limiteLembretesHora: number (1..60)
 //
 // ===============================================================
 
@@ -63,6 +73,11 @@ service cloud.firestore {
              request.resource.data[field].size() <= maxLen;
     }
 
+    // Valida se uma lista respeita o limite máximo de elementos
+    function isValidList(listValue, maxSize) {
+      return listValue is list && listValue.size() <= maxSize;
+    }
+
     // Garante que campos imutáveis não sejam alterados em operações de atualização
     function areImmutableFieldsUnchanged(fields) {
       return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
@@ -74,7 +89,7 @@ service cloud.firestore {
 
     // Valida a estrutura completa de uma demanda (usado em create e update)
     function isValidDemanda(data) {
-      let allowedFields = [
+      let requiredFields = [
         'titulo',
         'descricao',
         'prioridade',
@@ -88,7 +103,26 @@ service cloud.firestore {
         'concluidoEm'
       ];
 
-      return hasRequiredFields(allowedFields) &&
+      let allowedFields = [
+        'titulo',
+        'descricao',
+        'prioridade',
+        'prazo',
+        'categoria',
+        'status',
+        'origem',
+        'textoOriginal',
+        'criadoEm',
+        'atualizadoEm',
+        'concluidoEm',
+        'subtarefas',
+        'adiadoAte',
+        'recorrencia',
+        'etiquetas',
+        'historico'
+      ];
+
+      return hasRequiredFields(requiredFields) &&
              hasOnlyAllowedFields(allowedFields) &&
              validStringLength('titulo', 1, 120) &&
              validStringLength('descricao', 0, 5000) &&
@@ -103,7 +137,18 @@ service cloud.firestore {
              validStringLength('textoOriginal', 0, 5000) &&
              data.criadoEm is timestamp &&
              data.atualizadoEm is timestamp &&
-             (data.concluidoEm == null || data.concluidoEm is timestamp);
+             (data.concluidoEm == null || data.concluidoEm is timestamp) &&
+             (!('subtarefas' in data) || isValidList(data.subtarefas, 50)) &&
+             (!('adiadoAte' in data) || data.adiadoAte == null || (data.adiadoAte is string && data.adiadoAte.size() <= 25)) &&
+             (!('recorrencia' in data) || data.recorrencia == null || (
+               data.recorrencia is map &&
+               data.recorrencia.keys().size() <= 10 &&
+               'tipo' in data.recorrencia &&
+               data.recorrencia.tipo is string &&
+               data.recorrencia.tipo in ['nenhuma', 'diaria', 'semanal', 'mensal', 'dia_mes']
+             )) &&
+             (!('etiquetas' in data) || isValidList(data.etiquetas, 20)) &&
+             (!('historico' in data) || isValidList(data.historico, 100));
     }
 
     // Valida os campos do documento 'preferencias' (suporta criação e atualizações parciais com merge)
@@ -115,7 +160,10 @@ service cloud.firestore {
         'diasAvisoAmarelo',
         'diasAvisoLaranja',
         'diasAvisoVermelho',
-        'tema'
+        'tema',
+        'horarioSilencioInicio',
+        'horarioSilencioFim',
+        'limiteLembretesHora'
       ];
 
       return hasOnlyAllowedFields(allowedFields) &&
@@ -144,6 +192,19 @@ service cloud.firestore {
              (!('tema' in data) || (
                data.tema is string &&
                data.tema in ['sistema', 'claro', 'escuro']
+             )) &&
+             (!('horarioSilencioInicio' in data) || (
+               data.horarioSilencioInicio is string &&
+               data.horarioSilencioInicio.size() <= 10
+             )) &&
+             (!('horarioSilencioFim' in data) || (
+               data.horarioSilencioFim is string &&
+               data.horarioSilencioFim.size() <= 10
+             )) &&
+             (!('limiteLembretesHora' in data) || (
+               data.limiteLembretesHora is number &&
+               data.limiteLembretesHora >= 1 &&
+               data.limiteLembretesHora <= 60
              ));
     }
 

@@ -35,10 +35,13 @@ export function createVoiceRecognizer(handlers) {
     cancelled = false;
     finalTranscript = '';
 
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
     recognition = new SpeechRecognitionClass();
     recognition.lang = 'pt-BR';
     recognition.interimResults = true;
-    recognition.continuous = true;
+    // Em celulares, continuous=false evita falhas/bloqueios em Android e iOS
+    recognition.continuous = !isMobile;
 
     recognition.onresult = (event) => {
       let interim = '';
@@ -58,6 +61,7 @@ export function createVoiceRecognizer(handlers) {
       if (cancelled) return;
       const mapaErros = {
         'not-allowed': 'Permissão de microfone negada. Habilite o microfone no navegador.',
+        'service-not-allowed': 'Voz bloqueada por este navegador (comum no Safari/iOS). Dica: toque no campo abaixo e use o microfone do próprio teclado do celular!',
         'no-speech': 'Não ouvi nenhuma fala. Tente falar mais perto do microfone.',
         'audio-capture': 'Nenhum microfone encontrado neste dispositivo.',
         network: 'Erro de rede no reconhecimento de voz.'

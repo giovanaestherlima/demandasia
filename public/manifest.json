@@ -1,0 +1,54 @@
+{
+  "name": "Pauta — Assistente de Demandas",
+  "short_name": "Pauta",
+  "description": "Assistente calmo de demandas por voz e texto com organização inteligente.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#F6F4EF",
+  "theme_color": "#1F6F78",
+  "lang": "pt-BR",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Nova demanda",
+      "short_name": "Nova",
+      "description": "Abrir o Pauta pronto para digitar uma demanda",
+      "url": "/?acao=nova",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Falar demanda",
+      "short_name": "Falar",
+      "description": "Abrir o Pauta pronto para gravar por voz",
+      "url": "/?acao=falar",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

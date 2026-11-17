@@ -1,104 +1,61 @@
-# Pauta — Assistente de Demandas por Voz
+# Pauta — Assistente de Demandas por Voz e Texto
 
-O **Pauta** é um assistente calmo e objetivo para registrar e acompanhar demandas por **comando de voz** ou **texto livre**, usando **HTML, CSS e JavaScript puros (ES Modules)**, sem build e sem servidor próprio.
-
----
-
-## Funcionalidades incluídas (Fase 1)
-
-- **Entrada por voz (`pt-BR`) e texto:** botão de microfone com ondas animadas, transcrição em tempo real, botão de cancelar e fallback automático caso o navegador não suporte `SpeechRecognition`.
-- **Organização com IA (Firebase AI Logic / Gemini):** transforma falas soltas em JSON validado (`titulo`, `descricao`, `prioridade`, `prazo`, `categoria`). Se a IA estiver indisponível, entra automaticamente o **modo simples** (`titulo` = primeiras palavras, `descricao` = texto completo).
-- **Prévia editável:** revise título, descrição, prioridade e prazo antes de salvar (ou ative *"Salvar direto sem prévia"* nas configurações).
-- **Painel "Atenção" + Resumo falado:** destaca demandas abertas há mais tempo (3+ dias amarelo, 7+ laranja, 14+ vermelho ou prazo vencido) e faz um resumo falado em `pt-BR` ao abrir (com opção de silenciar).
-- **Lembretes periódicos:** alertas in-app e pela `Notification` API do navegador enquanto a aba estiver aberta.
-- **Login Google + Firestore:** cada usuário acessa apenas as próprias demandas (`users/{uid}/demandas`), protegidas por `firestore.rules`.
-- **Modo claro e escuro:** segue a preferência do sistema operacional com alternância manual no topo.
+O **Pauta** é um assistente calmo e objetivo para registrar, organizar e acompanhar demandas por **comando de voz** ou **texto livre**, usando **HTML, CSS e JavaScript puros (ES Modules)**, sem build e sem servidor próprio.
 
 ---
 
-## Passo a passo de configuração no Firebase
+## O que está implementado (Fases 1 a 6)
 
-### 1. Criar o projeto no Firebase
-1. Acesse o [Firebase Console](https://console.firebase.google.com/).
-2. Clique em **Adicionar projeto**, dê um nome (ex: `pauta-demandas`) e conclua a criação.
-3. Na visão geral do projeto, clique no ícone **Web (`</>`)** para registrar um aplicativo web e copie o objeto `firebaseConfig`.
+- **Fase 1 (Velocidade da IA):** prévia otimista instantânea (< 1s) por heurística local, refinamento em streaming com `gemini-3.5-flash-lite` sem sobrescrever campos editados manualmente, cache em memória, timeout de 8s com botão *"Tentar de novo"*, persistência offline do Firestore (IndexedDB) e medidor de velocidade em Configurações.
+- **Fase 2 (PWA e UX):** `manifest.json`, Service Worker (`/sw.js`) para uso offline da interface, botão *"Instalar"* (`beforeinstallprompt`), instrução para iPhone, skeletons de carregamento, estados vazios, atalhos de teclado (`N`, `/`, `M`, `Esc`, `?`) e toast **"Desfazer"** (~6s) ao concluir, editar ou excluir.
+- **Fase 3 (Gestão avançada):** subtarefas/checklist com barra de progresso, botão **Adiar (Soneca)**, demandas recorrentes (`diaria`, `semanal`, `mensal`, `dia_mes`), etiquetas com cores e filtro, visões por prazo (`Hoje`, `Esta semana`, `Atrasadas`, `Sem prazo`), histórico (linha do tempo), captura em lote e detecção local de duplicatas.
+- **Fase 4 (Comandos de voz de gestão):** seletor de modo (`Automático`, `Nova demanda`, `Comando`), consultas e ações por voz/texto com JSON estruturado de intenção, desambiguação e confirmação obrigatória antes de excluir.
+- **Fase 5 (Lembretes, resumos e métricas):** lembretes locais com respeito à soneca, horário de silêncio e limite por hora; tela **"Bom dia"**; resumo semanal pela IA; colar contexto (e-mail/mensagem); sugestão local de prioridade pelo histórico; painel de métricas em SVG puro; exportação **CSV** e **Imprimir / PDF**.
+- **Fase 6 (Segurança e qualidade):** `firestore.rules` validando dono (`uid`), tipos e limites de todos os campos; `Content-Security-Policy` em `firebase.json`; sanitização via `textContent`; suporte a Firebase App Check (reCAPTCHA Enterprise); e [TESTING.md](TESTING.md).
 
-### 2. Ativar Authentication (Login com Google)
-1. No menu lateral, acesse **Build → Authentication** e clique em **Vamos começar**.
-2. Na aba **Sign-in method**, ative o provedor **Google**, escolha um e-mail de suporte e salve.
-3. Em **Configurações → Domínios autorizados**, confirme que `localhost` e seu domínio `.web.app` estão listados.
+> **Importante sobre lembretes:** os lembretes funcionam **apenas com o Pauta aberto ou instalado como PWA**. Notificações com o aplicativo totalmente fechado exigiriam um servidor de push (Firebase Cloud Messaging + backend), fora do escopo atual.
 
-### 3. Ativar o Cloud Firestore
-1. Acesse **Build → Firestore Database** e clique em **Criar banco de dados**.
-2. Escolha a região mais próxima (ex: `southamerica-east1` — São Paulo) e inicie no modo de produção.
-3. As regras de segurança definitivas estão no arquivo `firestore.rules` deste repositório.
+---
 
-### 4. Ativar o Firebase AI Logic (Gemini)
-1. No Firebase Console, acesse **Build → AI Logic** (ou execute `npx firebase-tools init ailogic` na pasta do projeto).
-2. Selecione o provedor **Gemini Developer API** (possui camada gratuita para prototipagem e uso pessoal com o modelo `gemini-4-hydrogen`).
-3. *(Recomendado para produção)* Ative o **Firebase App Check** (reCAPTCHA Enterprise) para evitar uso indevido da sua cota de IA por terceiros.
+## Configuração no Firebase (passo a passo)
 
-### 5. Colar a configuração no código
-Abra o arquivo `public/js/firebase-config.js` e substitua o objeto `firebaseConfig` pelos dados copiados no passo 1:
-
-```js
-const firebaseConfig = {
-  apiKey: 'SUA_API_KEY',
-  authDomain: 'SEU_PROJETO.firebaseapp.com',
-  projectId: 'SEU_PROJETO_ID',
-  storageBucket: 'SEU_PROJETO.firebasestorage.app',
-  messagingSenderId: 'SEU_SENDER_ID',
-  appId: 'SEU_APP_ID'
-};
-```
+1. **Criar projeto e app Web** no [Firebase Console](https://console.firebase.google.com/) e copiar o `firebaseConfig` para `public/js/firebase-config.js`.
+2. **Authentication:** ativar provedor **Google** em *Build → Authentication → Sign-in method*.
+3. **Cloud Firestore:** criar o banco de dados em *Build → Firestore Database*.
+4. **Firebase AI Logic:** ativar *Gemini Developer API* em *Build → AI Logic* (ou via `npx.cmd -y firebase-tools@latest init ailogic`).
+5. **Firebase App Check (recomendado para proteger a cota de IA):**
+   - Crie uma chave **reCAPTCHA Enterprise** (tipo Site) no Google Cloud Console com os domínios `seu-projeto.web.app`, `seu-projeto.firebaseapp.com` e `localhost`.
+   - Vincule a chave em *Build → App Check → Apps* e cole a chave pública em `RECAPTCHA_ENTERPRISE_SITE_KEY` no `public/js/firebase-config.js`.
 
 ---
 
 ## Testar localmente
 
-> **Importante:** não abra o `index.html` diretamente via `file://`. ES Modules e a Web Speech API exigem `http://localhost` ou `https://`.
+> **Importante:** não abra o `index.html` via `file://`. ES Modules, Service Worker e Web Speech API exigem `http://localhost` ou `https://`.
 
-Com o Node.js instalado, rode na pasta `demandasia`:
-
-```bash
-npx firebase-tools login
-npx firebase-tools use --add
-npx firebase-tools serve --only hosting
+```powershell
+npx.cmd -y firebase-tools@latest login
+npx.cmd -y firebase-tools@latest use pauta-demandas-gi
+npx.cmd -y firebase-tools@latest serve --only hosting
 ```
 
-Acesse `http://localhost:5000` no navegador.
+Acesse `http://localhost:5000`.
 
 ---
 
-## Fazer deploy (Hosting + Regras do Firestore)
+## Deploy e atualizações futuras
 
-Na raiz do projeto (`demandasia/`), execute:
+Para publicar **Hosting + Regras + Índices** juntos:
 
-```bash
-npx firebase-tools deploy --only hosting,firestore:rules,firestore:indexes
+```powershell
+npx.cmd -y firebase-tools@latest deploy --only hosting,firestore:rules,firestore:indexes
 ```
 
-Ao final, o terminal exibirá a URL pública (ex: `https://seu-projeto.web.app`). No celular, você pode abrir essa URL no Chrome/Safari e usar **"Adicionar à tela inicial"** para usar como aplicativo.
+Para subir atualizações depois no GitHub e no Firebase:
 
-### Como subir atualizações depois
-
-1. Salve e envie suas alterações para o GitHub:
-   ```bash
-   git add .
-   git commit -m "Sua mensagem de atualização"
-   git push origin main
-   ```
-2. Publique a nova versão no Firebase:
-   ```bash
-   npx firebase-tools deploy --only hosting,firestore:rules
-   ```
-
----
-
-## Fase 2 (Opcional / Próximos passos)
-
-Os itens abaixo foram deixados intencionalmente fora da Fase 1 para manter o projeto enxuto e sem complexidade extra agora:
-
-1. **Notificações com o site fechado (Push / FCM):** implementar *Firebase Cloud Messaging* com Service Worker (`firebase-messaging-sw.js`) e agendamento em Cloud Functions/Cloud Scheduler para disparar lembretes mesmo quando o navegador estiver fechado.
-2. **Comandos de voz de gestão:** permitir frases como *"o que está pendente?"*, *"qual a demanda mais antiga?"* ou *"conclui a demanda do relatório"*, interpretadas pela IA com confirmação explícita antes de alterar ou excluir registros.
-3. **Integração com o sistema Python local:** criar um script Python usando `firebase-admin` (ou exportação JSON) para sincronizar automaticamente as demandas do Pauta com o seu programa local.
+```powershell
+git add .
+git commit -m "Sua mensagem"
+git push origin main
+npx.cmd -y firebase-tools@latest deploy --only hosting,firestore:rules,firestore:indexes
+```

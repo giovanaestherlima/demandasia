@@ -696,6 +696,41 @@ dialog::backdrop {
   line-height: 1.45;
 }
 
+.ai-status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  padding: 0.55rem 0.85rem;
+  border-radius: var(--radius-md);
+  background: var(--surface-alt);
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.ai-status-bar.is-refining {
+  color: var(--primary);
+  background: linear-gradient(
+    90deg,
+    var(--primary-soft) 0%,
+    rgba(31, 111, 120, 0.22) 50%,
+    var(--primary-soft) 100%
+  );
+  background-size: 200% 100%;
+  animation: ai-shimmer 1.6s linear infinite;
+}
+
+.ai-status-bar.is-warn {
+  background: var(--warn-bg);
+  color: var(--warn-text);
+}
+
+@keyframes ai-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
 /* ---------- Toast In-App ---------- */
 .toast-container {
   position: fixed;
@@ -732,3 +767,220 @@ dialog::backdrop {
   gap: 0.75rem;
   width: 100%;
 }
+
+.toast-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+/* ---------- PWA Install & iOS Tip ---------- */
+.install-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.65rem 0.95rem;
+  border-radius: var(--radius-md);
+  background: var(--primary-soft);
+  border: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+
+/* ---------- Seletor de Modo (Auto / Demanda / Comando / Colar) ---------- */
+.capture-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  justify-content: center;
+}
+
+.mode-pill {
+  padding: 0.32rem 0.75rem;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.mode-pill[aria-pressed="true"] {
+  background: var(--primary-soft);
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+/* ---------- Skeletons de Carregamento ---------- */
+.skeleton-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.skeleton-line {
+  height: 14px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--surface-alt) 25%, var(--border) 50%, var(--surface-alt) 75%);
+  background-size: 200% 100%;
+  animation: ai-shimmer 1.4s infinite linear;
+}
+
+/* ---------- Subtarefas e Progresso ---------- */
+.subtasks-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.progress-track {
+  flex: 1;
+  height: 6px;
+  background: var(--surface-alt);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--done);
+  transition: width var(--duration-normal) var(--ease);
+}
+
+.subtasks-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.subtask-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.5rem;
+  background: var(--surface-alt);
+  border-radius: var(--radius-sm);
+  font-size: 0.86rem;
+}
+
+.subtask-row span {
+  flex: 1;
+}
+
+.subtask-row.is-checked span {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+/* ---------- Etiquetas e Filtro de Tags ---------- */
+.tag-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.tag-chip {
+  font-size: 0.76rem;
+  padding: 0.18rem 0.55rem;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+}
+
+.tag-chip[aria-pressed="true"] {
+  background: var(--primary);
+  color: var(--primary-contrast);
+  border-color: var(--primary);
+}
+
+/* ---------- Histórico (Timeline) ---------- */
+.timeline-list {
+  list-style: none;
+  margin: 0;
+  padding: 0.4rem 0 0 0.75rem;
+  border-left: 2px solid var(--border-strong);
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+/* ---------- Métricas ---------- */
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.65rem;
+}
+
+.metric-box {
+  background: var(--surface-alt);
+  border-radius: var(--radius-md);
+  padding: 0.75rem;
+  text-align: center;
+}
+
+.metric-value {
+  font-family: var(--font-display);
+  font-size: 1.45rem;
+  color: var(--primary);
+  display: block;
+}
+
+.metric-label {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+/* ---------- Atalhos de Teclado ---------- */
+.shortcuts-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.5rem 1rem;
+  align-items: center;
+  font-size: 0.9rem;
+}
+
+kbd {
+  display: inline-block;
+  padding: 0.18rem 0.45rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-alt);
+  font-family: monospace;
+  font-size: 0.82rem;
+}
+
+/* ---------- Impressão / Exportar PDF ---------- */
+@media print {
+  .app-header .header-actions,
+  .capture-card,
+  .toolbar,
+  .install-banner,
+  .demand-actions,
+  .check-btn,
+  .toast-container,
+  dialog {
+    display: none !important;
+  }
+
+  body {
+    background: #FFFFFF !important;
+    color: #000000 !important;
+  }
+
+  .demand-card {
+    box-shadow: none !important;
+    border: 1px solid #CCCCCC !important;
+    break-inside: avoid;
+  }
+}
+
