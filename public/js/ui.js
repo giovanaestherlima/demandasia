@@ -161,8 +161,37 @@ function endOfWeekISO() {
   return `${y}-${m}-${day}`;
 }
 
+function normalizeSearchText(str) {
+  return String(str || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function buildSearchableDates(d) {
+  const partes = [];
+  if (d.prazo) {
+    partes.push(d.prazo, formatDateBR(d.prazo));
+    if (/^\d{4}-\d{2}-\d{2}$/.test(d.prazo)) {
+      const dtPrazo = new Date(`${d.prazo}T12:00:00`);
+      partes.push(dtPrazo.toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' }));
+    }
+  }
+  const criado = toDate(d.criadoEm);
+  partes.push(
+    criado.toLocaleDateString('pt-BR'),
+    criado.toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' })
+  );
+  if (d.adiadoAte) {
+    partes.push(d.adiadoAte, formatDateBR(d.adiadoAte));
+  }
+  if (isOverdue(d)) partes.push('vencida atrasada');
+  if (isDueToday(d)) partes.push('hoje');
+  return partes.join(' ');
+}
+
 export function filterAndSortDemandas(demandas, { filter, search, sort, tag }) {
-  const termo = String(search || '').trim().toLowerCase();
+  const termo = normalizeSearchText(String(search || '').trim());
   const hoje = todayLocalISO();
   const fimSemana = endOfWeekISO();
 
@@ -179,7 +208,11 @@ export function filterAndSortDemandas(demandas, { filter, search, sort, tag }) {
 
     if (termo) {
       const tagsTxt = (d.etiquetas || []).join(' ');
-      const alvo = `${d.titulo} ${d.descricao} ${d.categoria || ''} ${tagsTxt}`.toLowerCase();
+      const prioLabel = LABEL_PRIORIDADE[d.prioridade] || '';
+      const datasTxt = buildSearchableDates(d);
+      const alvo = normalizeSearchText(
+        `${d.titulo} ${d.descricao} ${d.categoria || ''} ${d.prioridade || ''} ${prioLabel} ${tagsTxt} ${datasTxt}`
+      );
       if (!alvo.includes(termo)) return false;
     }
     return true;
