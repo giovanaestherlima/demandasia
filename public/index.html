@@ -69,6 +69,7 @@
         <button id="morning-btn" type="button" class="subbar-pill hidden" title="Resumo Bom Dia">Bom dia</button>
         <button id="metrics-btn" type="button" class="subbar-pill hidden" title="Métricas e exportação">Métricas</button>
         <button id="shortcuts-btn" type="button" class="subbar-pill" aria-label="Atalhos de teclado" title="Atalhos (?)">? Atalhos</button>
+        <button id="student-mode-btn" type="button" class="subbar-pill hidden">Pauta para estudantes</button>
         <button id="install-app-btn" type="button" class="subbar-pill subbar-pill-primary hidden">Instalar app</button>
       </nav>
     </header>
@@ -77,6 +78,16 @@
     <div id="ios-install-banner" class="install-banner hidden" role="status">
       <span>No iPhone: toque em <strong>Compartilhar</strong> &gt; <strong>Adicionar à Tela de Início</strong> para usar como app.</span>
       <button id="ios-install-dismiss" type="button" class="btn btn-ghost btn-sm" aria-label="Dispensar dica">✕</button>
+    </div>
+
+    <!-- Cartão de convite único pós-login para o Modo Estudante -->
+    <div id="student-invite-banner" class="install-banner hidden" role="region" aria-label="Convite Pauta para estudantes">
+      <span>Estudando este semestre? Ative o <strong>Pauta para estudantes</strong> (planner em PDF, disciplinas e modo foco).</span>
+      <div style="display:flex;gap:0.35rem;flex-wrap:wrap;">
+        <button id="student-invite-accept" type="button" class="btn btn-primary btn-sm">Conhecer</button>
+        <button id="student-invite-later" type="button" class="btn btn-ghost btn-sm">Agora não</button>
+        <button id="student-invite-never" type="button" class="btn btn-ghost btn-sm">Não mostrar de novo</button>
+      </div>
     </div>
 
     <!-- Tela de Login -->
@@ -469,6 +480,11 @@
           <button type="button" id="cfg-notif-btn" class="btn btn-secondary btn-sm">Permitir</button>
         </div>
 
+        <div id="cfg-student-wrap" class="switch-row">
+          <span>Pauta para estudantes</span>
+          <button type="button" id="cfg-student-btn" class="btn btn-secondary btn-sm">Ativar / Gerenciar</button>
+        </div>
+
         <div id="cfg-delete-legacy-wrap" class="switch-row hidden">
           <span>Dados antigos migrados</span>
           <button type="button" id="cfg-delete-legacy-btn" class="btn btn-danger btn-sm">Apagar dados antigos</button>
@@ -483,6 +499,34 @@
         <button type="submit" value="save" class="btn btn-primary">Salvar preferências</button>
       </div>
     </form>
+  </dialog>
+
+  <!-- Modal "Ativar o Pauta para estudantes" (Etapa E0) -->
+  <dialog id="student-activate-dialog" aria-labelledby="student-activate-title">
+    <div class="dialog-header">
+      <h2 id="student-activate-title">Ativar o Pauta para estudantes</h2>
+      <button type="button" id="student-activate-close-x" class="btn btn-ghost btn-sm" aria-label="Fechar">✕</button>
+    </div>
+    <div class="dialog-body">
+      <p>Organize sua vida acadêmica com calma, sem perder a simplicidade do Pauta.</p>
+      <label class="switch-row">
+        <strong>Ativar Modo Estudante</strong>
+        <input id="stu-master-toggle" type="checkbox" checked>
+      </label>
+      <div id="stu-modules-box" style="display:flex;flex-direction:column;gap:0.45rem;padding-left:0.5rem;border-left:2px solid var(--border-strong);">
+        <label class="switch-row"><span>Planner em PDF (Semanal, Diário, Mensal, Provas)</span><input type="checkbox" data-stu-mod="planner" checked></label>
+        <label class="switch-row"><span>Disciplinas, semestres e grade horária</span><input type="checkbox" data-stu-mod="disciplinas" checked></label>
+        <label class="switch-row"><span>Plano de estudo por IA e Modo Foco (Pomodoro)</span><input type="checkbox" data-stu-mod="foco" checked></label>
+        <label class="switch-row"><span>Calculadora de notas e controle de faltas</span><input type="checkbox" data-stu-mod="notas" checked></label>
+        <label class="switch-row"><span>Captura por foto/plano de ensino e exportação .ics</span><input type="checkbox" data-stu-mod="captura" checked></label>
+      </div>
+      <p class="info-note">Você pode desativar quando quiser. Seus dados de estudante ficam guardados.</p>
+      <p id="stu-activate-error" class="info-note hidden" role="alert"></p>
+    </div>
+    <div class="dialog-footer">
+      <button type="button" id="student-activate-cancel" class="btn btn-secondary">Agora não</button>
+      <button type="button" id="student-activate-save" class="btn btn-primary">Ativar</button>
+    </div>
   </dialog>
 
   <!-- Diálogo de Migração V2 -->

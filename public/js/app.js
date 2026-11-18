@@ -52,6 +52,15 @@ import {
   getQuotaStats
 } from './workspaces.js?v=5';
 import {
+  captureStudentUrlParam,
+  clearStudentUrlParam,
+  getStudentConfig,
+  loadEnabledStudentModules,
+  modoEstudanteAtivo,
+  saveStudentConfig,
+  syncStudentConfigFromProfile
+} from './modo-estudante.js?v=5';
+import {
   applyTheme,
   filterAndSortDemandas,
   formatDateBR,
@@ -226,8 +235,73 @@ const els = {
   migrationStatusText: document.getElementById('migration-status-text'),
   migrationProgress: document.getElementById('migration-progress'),
   migrationDeleteLegacyBtn: document.getElementById('migration-delete-legacy-btn'),
-  migrationCloseBtn: document.getElementById('migration-close-btn')
+  migrationCloseBtn: document.getElementById('migration-close-btn'),
+
+  studentModeBtn: document.getElementById('student-mode-btn'),
+  studentInviteBanner: document.getElementById('student-invite-banner'),
+  studentInviteAccept: document.getElementById('student-invite-accept'),
+  studentInviteLater: document.getElementById('student-invite-later'),
+  studentInviteNever: document.getElementById('student-invite-never'),
+  cfgStudentBtn: document.getElementById('cfg-student-btn'),
+  studentActivateDialog: document.getElementById('student-activate-dialog'),
+  studentActivateCloseX: document.getElementById('student-activate-close-x'),
+  studentActivateCancel: document.getElementById('student-activate-cancel'),
+  studentActivateSave: document.getElementById('student-activate-save'),
+  stuMasterToggle: document.getElementById('stu-master-toggle'),
+  stuModulesBox: document.getElementById('stu-modules-box'),
+  stuActivateError: document.getElementById('stu-activate-error')
 };
+
+let studentUiMod = null;
+
+async function syncStudentModeLifecycle() {
+  if (!state.user) return;
+  const ativo = modoEstudanteAtivo();
+  els.studentModeBtn.classList.toggle('hidden', ativo);
+
+  if (!ativo) {
+    if (studentUiMod) {
+      studentUiMod.unmountStudentUI();
+    }
+    return;
+  }
+
+  els.studentInviteBanner.classList.add('hidden');
+  await loadEnabledStudentModules();
+  if (!studentUiMod) {
+    studentUiMod = await import('./estudante/estudante-ui.js?v=5');
+  }
+  await studentUiMod.mountStudentUI({
+    getWsId: () => state.activeWsId,
+    getUser: () => state.user,
+    getDemandas: () => state.demandas,
+    appendSubtasksToPreview: (passos) => {
+      state.editingSubtarefas = [...state.editingSubtarefas, ...passos];
+      renderSubtasksEditor();
+    },
+    openBatchPreview: (items, origem) => {
+      state.batchQueue = items.map((d) => ({
+        ...d,
+        status: 'pendente',
+        origem,
+        textoOriginal: d.titulo
+      }));
+      state.batchTotal = state.batchQueue.length;
+      openNextBatchItem();
+    }
+  });
+}
+
+function openStudentActivateDialog() {
+  const cfg = getStudentConfig();
+  els.stuMasterToggle.checked = cfg.ativo ? true : true; // padrão marcado ao abrir para ativar
+  els.stuModulesBox.querySelectorAll('input[data-stu-mod]').forEach((chk) => {
+    chk.checked = cfg.modulos?.[chk.dataset.stuMod] ?? true;
+  });
+  els.stuActivateError.classList.add('hidden');
+  els.studentActivateSave.textContent = cfg.ativo ? 'Salvar módulos' : 'Ativar';
+  els.studentActivateDialog.showModal();
+}
 
 const reminderScheduler = createReminderScheduler(
   () => state.demandas,
@@ -625,6 +699,9 @@ function fillPreviewFields(d) {
   els.editDiaMes.value = d.recorrencia?.diaMes || 1;
 
   renderSubtasksEditor();
+  if (modoEstudanteAtivo() && studentUiMod) {
+    studentUiMod.syncPreviewAcademicSelects(d);
+  }
 
   // Linha do tempo
   const hist = Array.isArray(d.historico) ? d.historico : [];
@@ -1058,7 +1135,8 @@ function bindEvents() {
       status: els.editStatus.value,
       etiquetas,
       recorrencia,
-      subtarefas: state.editingSubtarefas
+      subtarefas: state.editingSubtarefas,
+      ...(modoEstudanteAtivo() && studentUiMod ? studentUiMod.readPreviewAcademicFields() : {})
     };
 
     if (!dados.titulo) {
@@ -1287,6 +1365,64 @@ function bindEvents() {
       }
     }
   });
+
+  // Eventos do Ativador do Modo Estudante (Etapa E0)
+  els.studentModeBtn.addEventListener('click', openStudentActivateDialog);
+  els.cfgStudentBtn.addEventListener('click', () => {
+    els.settingsDialog.close('cancel');
+    openStudentActivateDialog();
+  });
+  els.studentInviteAccept.addEventListener('click', openStudentActivateDialog);
+  els.studentInviteLater.addEventListener('click', () => {
+    els.studentInviteBanner.classList.add('hidden');
+  });
+  els.studentInviteNever.addEventListener('click', async () => {
+    els.studentInviteBanner.classList.add('hidden');
+    if (state.user) {
+      await saveStudentConfig(state.user.uid, { dispensaConvite: true }).catch(() => {});
+    }
+  });
+
+  els.studentActivateCloseX.addEventListener('click', () => els.studentActivateDialog.close());
+  els.studentActivateCancel.addEventListener('click', () => els.studentActivateDialog.close());
+  els.stuMasterToggle.addEventListener('change', () => {
+    const on = els.stuMasterToggle.checked;
+    els.stuModulesBox.querySelectorAll('input').forEach((i) => {
+      i.disabled = !on;
+    });
+  });
+
+  els.studentActivateSave.addEventListener('click', async () => {
+    if (!state.user) return;
+    const ativo = els.stuMasterToggle.checked;
+    if (!ativo && getStudentConfig().ativo) {
+      const ok = window.confirm('Os recursos de estudante serão escondidos. Seus dados ficam guardados e voltam se você reativar.');
+      if (!ok) return;
+    }
+
+    const modulos = {};
+    els.stuModulesBox.querySelectorAll('input[data-stu-mod]').forEach((chk) => {
+      modulos[chk.dataset.stuMod] = chk.checked;
+    });
+
+    els.studentActivateSave.disabled = true;
+    els.studentActivateSave.textContent = ativo ? 'Ativando…' : 'Salvando…';
+    els.stuActivateError.classList.add('hidden');
+
+    try {
+      await saveStudentConfig(state.user.uid, { ativo, modulos });
+      await syncStudentModeLifecycle();
+      els.studentActivateDialog.close();
+      showToast(ativo ? 'Modo Estudante ativado!' : 'Modo Estudante desativado.');
+    } catch (err) {
+      els.stuActivateError.textContent = 'Não foi possível salvar agora (verifique sua conexão) e tente novamente.';
+      els.stuActivateError.classList.remove('hidden');
+      console.error(err);
+    } finally {
+      els.studentActivateSave.disabled = false;
+      els.studentActivateSave.textContent = ativo ? 'Ativar' : 'Salvar';
+    }
+  });
 }
 
 function updateNotifButtonText() {
@@ -1310,6 +1446,9 @@ function init() {
     els.configWarning.classList.remove('hidden');
     els.loginBtn.disabled = true;
   }
+
+  // Captura ?estudante=1 antes do login para retomar após autenticar
+  const pendingStudentLink = captureStudentUrlParam();
 
   registerPWA();
   warmUpAiModel();
@@ -1337,6 +1476,8 @@ function init() {
       els.settingsBtn.classList.add('hidden');
       els.morningBtn.classList.add('hidden');
       els.metricsBtn.classList.add('hidden');
+      els.studentModeBtn.classList.add('hidden');
+      els.studentInviteBanner.classList.add('hidden');
       return;
     }
 
@@ -1375,6 +1516,20 @@ function init() {
       const wsSetup = await ensureUserAndPersonalWorkspace(user);
       state.meusEspacos = wsSetup.meusEspacos;
       state.activeWsId = wsSetup.espacoAtivo;
+
+      // Sincroniza Modo Estudante com o Firestore (Firestore vence localStorage)
+      const stuCfg = syncStudentConfigFromProfile(wsSetup.profile);
+      await syncStudentModeLifecycle();
+
+      if (pendingStudentLink || captureStudentUrlParam()) {
+        clearStudentUrlParam();
+        if (!stuCfg.ativo) {
+          openStudentActivateDialog();
+        }
+      } else if (!stuCfg.ativo && !stuCfg.dispensaConvite && sessionStorage.getItem('pauta_stu_invite_shown') !== '1') {
+        sessionStorage.setItem('pauta_stu_invite_shown', '1');
+        els.studentInviteBanner.classList.remove('hidden');
+      }
 
       if (!wsSetup.profile.migradoV2) {
         const legacyDocs = await checkLegacyDemandsCount(user.uid);

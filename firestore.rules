@@ -27,6 +27,7 @@ rules_version = '2';
 //
 // Documento: users/{uid}
 //   - Perfil privado e metadados de migração do usuário
+//   - config: map opcional (máx. 20 chaves; inclui modoEstudante)
 //
 // Coleção: users/{uid}/meusEspacos/{wsId}
 //   - Índice pessoal de workspaces dos quais o usuário participa
@@ -54,6 +55,19 @@ rules_version = '2';
 //   - criadoPorUid: string (obrigatório, imutável)
 //   - criadoEm: timestamp (obrigatório, imutável)
 //   - atualizadoEm: timestamp (obrigatório)
+//   - Campos acadêmicos opcionais (Modo Estudante): disciplinaId, semestreId, tipo, estimativaMin, peso
+//
+// Coleção: workspaces/{wsId}/disciplinas/{discId}
+//   - nome: string (1..80), cor: string (<= 20), semestreId: string (<= 60)
+//
+// Coleção: workspaces/{wsId}/semestres/{semId}
+//   - nome: string (1..60), arquivado: bool
+//
+// Coleção: workspaces/{wsId}/grade/{aulaId}
+//   - disciplinaId: string (1..60), diaSemana: int (0..6), inicio: string (<= 10), fim: string (<= 10)
+//
+// Coleção: workspaces/{wsId}/sessoesFoco/{sessaoId}
+//   - uid: string (== request.auth.uid na criação, imutável), minutos: number (1..240), disciplinaId: null | string (<= 60)
 //
 // Coleção: workspaces/{wsId}/demandas/{demandaId}/comentarios/{cid}
 //   - autorUid: string (obrigatório, imutável)
@@ -319,12 +333,31 @@ service cloud.firestore {
     // Validadores de Domínio (Workspaces Colaborativos)
     // ===============================================================
 
-    // Valida o documento raiz do usuário (perfil e estado de migração)
+    // Valida configurações do Modo Estudante dentro de users/{uid}.config
+    function isValidModoEstudante(me) {
+      return me is map &&
+             me.keys().size() <= 15 &&
+             (!('ativo' in me) || me.ativo is bool) &&
+             (!('modulos' in me) || (me.modulos is map && me.modulos.keys().size() <= 20)) &&
+             (!('ativadoEm' in me) || me.ativadoEm == null || me.ativadoEm is timestamp || (me.ativadoEm is string && me.ativadoEm.size() <= 40)) &&
+             (!('onboardingConcluido' in me) || me.onboardingConcluido is bool) &&
+             (!('dispensaConvite' in me) || me.dispensaConvite is bool);
+    }
+
+    // Valida o mapa opcional config do documento raiz do usuário
+    function isValidUserConfig(config) {
+      return config is map &&
+             config.keys().size() <= 20 &&
+             (!('modoEstudante' in config) || config.modoEstudante == null || isValidModoEstudante(config.modoEstudante));
+    }
+
+    // Valida o documento raiz do usuário (perfil, estado de migração e configurações)
     function isValidUserDoc(data) {
       return data.keys().size() <= 30 &&
              (!('nome' in data) || data.nome == null || (data.nome is string && data.nome.size() <= 120)) &&
              (!('email' in data) || data.email == null || (data.email is string && data.email.size() <= 254)) &&
-             (!('fotoURL' in data) || data.fotoURL == null || (data.fotoURL is string && data.fotoURL.size() <= 500));
+             (!('fotoURL' in data) || data.fotoURL == null || (data.fotoURL is string && data.fotoURL.size() <= 500)) &&
+             (!('config' in data) || data.config == null || isValidUserConfig(data.config));
     }
 
     // Valida entrada em users/{uid}/meusEspacos/{wsId}
@@ -408,7 +441,69 @@ service cloud.firestore {
              (!('etiquetas' in data) || isValidList(data.etiquetas, 20)) &&
              (!('responsavelUid' in data) || data.responsavelUid == null || (data.responsavelUid is string && data.responsavelUid.size() <= 128)) &&
              (!('responsavelNome' in data) || data.responsavelNome == null || (data.responsavelNome is string && data.responsavelNome.size() <= 120)) &&
-             (!('criadoPorNome' in data) || data.criadoPorNome == null || (data.criadoPorNome is string && data.criadoPorNome.size() <= 120));
+             (!('criadoPorNome' in data) || data.criadoPorNome == null || (data.criadoPorNome is string && data.criadoPorNome.size() <= 120)) &&
+             // Campos acadêmicos opcionais (Modo Estudante)
+             (!('disciplinaId' in data) || data.disciplinaId == null || (data.disciplinaId is string && data.disciplinaId.size() <= 60)) &&
+             (!('semestreId' in data) || data.semestreId == null || (data.semestreId is string && data.semestreId.size() <= 60)) &&
+             (!('tipo' in data) || data.tipo == null || (data.tipo is string && data.tipo in ['prova', 'trabalho', 'leitura', 'seminario', 'lista', 'estudo', 'outro'])) &&
+             (!('estimativaMin' in data) || data.estimativaMin == null || (data.estimativaMin is number && data.estimativaMin >= 0 && data.estimativaMin <= 1440)) &&
+             (!('peso' in data) || data.peso == null || (data.peso is number && data.peso >= 0 && data.peso <= 1000));
+    }
+
+    // Valida disciplina do Modo Estudante em workspaces/{wsId}/disciplinas/{discId}
+    function isValidDisciplina(data) {
+      return data.keys().size() <= 15 &&
+             data.nome is string &&
+             data.nome.size() >= 1 &&
+             data.nome.size() <= 80 &&
+             data.cor is string &&
+             data.cor.size() <= 20 &&
+             data.semestreId is string &&
+             data.semestreId.size() <= 60 &&
+             (!('criadoEm' in data) || data.criadoEm is timestamp) &&
+             (!('atualizadoEm' in data) || data.atualizadoEm is timestamp);
+    }
+
+    // Valida semestre do Modo Estudante em workspaces/{wsId}/semestres/{semId}
+    function isValidSemestre(data) {
+      return data.keys().size() <= 15 &&
+             data.nome is string &&
+             data.nome.size() >= 1 &&
+             data.nome.size() <= 60 &&
+             data.arquivado is bool &&
+             (!('criadoEm' in data) || data.criadoEm is timestamp) &&
+             (!('atualizadoEm' in data) || data.atualizadoEm is timestamp);
+    }
+
+    // Valida aula da grade horária em workspaces/{wsId}/grade/{aulaId}
+    function isValidGradeAula(data) {
+      return data.keys().size() <= 15 &&
+             data.disciplinaId is string &&
+             data.disciplinaId.size() >= 1 &&
+             data.disciplinaId.size() <= 60 &&
+             data.diaSemana is int &&
+             data.diaSemana >= 0 &&
+             data.diaSemana <= 6 &&
+             data.inicio is string &&
+             data.inicio.size() <= 10 &&
+             data.fim is string &&
+             data.fim.size() <= 10 &&
+             (!('criadoEm' in data) || data.criadoEm is timestamp) &&
+             (!('atualizadoEm' in data) || data.atualizadoEm is timestamp);
+    }
+
+    // Valida sessão de foco (Pomodoro/estudo) em workspaces/{wsId}/sessoesFoco/{sessaoId}
+    function isValidSessaoFoco(data) {
+      return data.keys().size() <= 15 &&
+             data.uid is string &&
+             data.uid.size() >= 1 &&
+             data.uid.size() <= 128 &&
+             data.minutos is number &&
+             data.minutos >= 1 &&
+             data.minutos <= 240 &&
+             (!('disciplinaId' in data) || data.disciplinaId == null || (data.disciplinaId is string && data.disciplinaId.size() <= 60)) &&
+             (!('criadoEm' in data) || data.criadoEm is timestamp) &&
+             (!('atualizadoEm' in data) || data.atualizadoEm is timestamp);
     }
 
     // Valida comentário em demanda do workspace
@@ -624,6 +719,64 @@ service cloud.firestore {
           // Histórico é imutável (somente inclusão)
           allow update, delete: if false;
         }
+      }
+
+      // Disciplinas do Modo Estudante
+      match /disciplinas/{discId} {
+        // Leitura: qualquer membro do workspace (custo: 1 leitura)
+        allow read: if isWsMember(wsId);
+
+        // Criação e atualização: editor ou admin com validação estrita de schema (custo: até 2 leituras)
+        allow create, update: if isWsEditorOrAdmin(wsId) &&
+                                 isValidDisciplina(request.resource.data);
+
+        // Exclusão: editor ou admin (custo: até 2 leituras)
+        allow delete: if isWsEditorOrAdmin(wsId);
+      }
+
+      // Semestres do Modo Estudante
+      match /semestres/{semId} {
+        // Leitura: qualquer membro do workspace (custo: 1 leitura)
+        allow read: if isWsMember(wsId);
+
+        // Criação e atualização: editor ou admin com validação estrita de schema (custo: até 2 leituras)
+        allow create, update: if isWsEditorOrAdmin(wsId) &&
+                                 isValidSemestre(request.resource.data);
+
+        // Exclusão: editor ou admin (custo: até 2 leituras)
+        allow delete: if isWsEditorOrAdmin(wsId);
+      }
+
+      // Grade horária de aulas do Modo Estudante
+      match /grade/{aulaId} {
+        // Leitura: qualquer membro do workspace (custo: 1 leitura)
+        allow read: if isWsMember(wsId);
+
+        // Criação e atualização: editor ou admin com validação estrita de schema (custo: até 2 leituras)
+        allow create, update: if isWsEditorOrAdmin(wsId) &&
+                                 isValidGradeAula(request.resource.data);
+
+        // Exclusão: editor ou admin (custo: até 2 leituras)
+        allow delete: if isWsEditorOrAdmin(wsId);
+      }
+
+      // Sessões de foco (Pomodoro/estudo) do Modo Estudante
+      match /sessoesFoco/{sessaoId} {
+        // Leitura: qualquer membro do workspace (custo: 1 leitura)
+        allow read: if isWsMember(wsId);
+
+        // Criação: editor ou admin; uid deve corresponder ao usuário autenticado (custo: até 2 leituras)
+        allow create: if isWsEditorOrAdmin(wsId) &&
+                         request.resource.data.uid == request.auth.uid &&
+                         isValidSessaoFoco(request.resource.data);
+
+        // Atualização: editor ou admin; uid é imutável (custo: até 2 leituras)
+        allow update: if isWsEditorOrAdmin(wsId) &&
+                         request.resource.data.uid == resource.data.uid &&
+                         isValidSessaoFoco(request.resource.data);
+
+        // Exclusão: editor ou admin (custo: até 2 leituras)
+        allow delete: if isWsEditorOrAdmin(wsId);
       }
     }
 

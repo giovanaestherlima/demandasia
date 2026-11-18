@@ -127,6 +127,11 @@ export async function createDemanda(wsId, user, dados) {
     historico: appendHistorico(dados.historico, 'criada', dados.origem === 'voz' ? 'por voz' : 'por texto'),
     responsavelUid: dados.responsavelUid ?? null,
     responsavelNome: dados.responsavelNome ?? null,
+    ...(dados.disciplinaId !== undefined ? { disciplinaId: dados.disciplinaId || null } : {}),
+    ...(dados.semestreId !== undefined ? { semestreId: dados.semestreId || null } : {}),
+    ...(dados.tipo !== undefined ? { tipo: dados.tipo || null } : {}),
+    ...(dados.estimativaMin !== undefined ? { estimativaMin: dados.estimativaMin ?? null } : {}),
+    ...(dados.peso !== undefined ? { peso: dados.peso ?? null } : {}),
     criadoPorUid: uid,
     criadoPorNome: userName,
     atualizadoPorUid: uid,
@@ -141,6 +146,7 @@ export async function createDemanda(wsId, user, dados) {
 
 /**
  * Atualiza uma demanda existente em workspaces/{wsId}/demandas.
+ * Campos acadêmicos só são alterados se explicitamente enviados (preserva dados de colegas).
  */
 export async function updateDemanda(wsId, uid, demandaId, dados, historicoAcao = 'editada', detalhe = '') {
   const ref = doc(db, 'workspaces', wsId, 'demandas', demandaId);
@@ -162,6 +168,11 @@ export async function updateDemanda(wsId, uid, demandaId, dados, historicoAcao =
     payload.responsavelUid = dados.responsavelUid ?? null;
     payload.responsavelNome = dados.responsavelNome ?? null;
   }
+  if (dados.disciplinaId !== undefined) payload.disciplinaId = dados.disciplinaId || null;
+  if (dados.semestreId !== undefined) payload.semestreId = dados.semestreId || null;
+  if (dados.tipo !== undefined) payload.tipo = dados.tipo || null;
+  if (dados.estimativaMin !== undefined) payload.estimativaMin = dados.estimativaMin ?? null;
+  if (dados.peso !== undefined) payload.peso = dados.peso ?? null;
   if (dados.subtarefas !== undefined) {
     payload.subtarefas = normalizeSubtarefas(dados.subtarefas);
   }
