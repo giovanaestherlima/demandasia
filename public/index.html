@@ -295,6 +295,7 @@
               <option value="nenhuma">Não se repete</option>
               <option value="diaria">Diária</option>
               <option value="semanal">Semanal</option>
+              <option value="dias_semana">Dias da semana</option>
               <option value="mensal">Mensal</option>
               <option value="dia_mes">Dia fixo do mês</option>
             </select>
@@ -303,6 +304,18 @@
         <div id="edit-dia-mes-wrap" class="form-field hidden">
           <label for="edit-dia-mes">Dia do mês (1 a 31)</label>
           <input id="edit-dia-mes" type="number" min="1" max="31" value="1" class="input-control">
+        </div>
+        <div id="edit-dias-semana-wrap" class="form-field hidden">
+          <label>Repetir nos dias</label>
+          <div role="group" aria-label="Dias da semana para repetir" style="display:flex;flex-wrap:wrap;gap:0.35rem;">
+            <label style="display:inline-flex;align-items:center;gap:0.25rem;padding:0.25rem 0.5rem;border:1px solid var(--border);border-radius:999px;font-size:0.82rem;cursor:pointer;"><input type="checkbox" data-rec-dow="0">Dom</label>
+            <label style="display:inline-flex;align-items:center;gap:0.25rem;padding:0.25rem 0.5rem;border:1px solid var(--border);border-radius:999px;font-size:0.82rem;cursor:pointer;"><input type="checkbox" data-rec-dow="1">Seg</label>
+            <label style="display:inline-flex;align-items:center;gap:0.25rem;padding:0.25rem 0.5rem;border:1px solid var(--border);border-radius:999px;font-size:0.82rem;cursor:pointer;"><input type="checkbox" data-rec-dow="2">Ter</label>
+            <label style="display:inline-flex;align-items:center;gap:0.25rem;padding:0.25rem 0.5rem;border:1px solid var(--border);border-radius:999px;font-size:0.82rem;cursor:pointer;"><input type="checkbox" data-rec-dow="3">Qua</label>
+            <label style="display:inline-flex;align-items:center;gap:0.25rem;padding:0.25rem 0.5rem;border:1px solid var(--border);border-radius:999px;font-size:0.82rem;cursor:pointer;"><input type="checkbox" data-rec-dow="4">Qui</label>
+            <label style="display:inline-flex;align-items:center;gap:0.25rem;padding:0.25rem 0.5rem;border:1px solid var(--border);border-radius:999px;font-size:0.82rem;cursor:pointer;"><input type="checkbox" data-rec-dow="5">Sex</label>
+            <label style="display:inline-flex;align-items:center;gap:0.25rem;padding:0.25rem 0.5rem;border:1px solid var(--border);border-radius:999px;font-size:0.82rem;cursor:pointer;"><input type="checkbox" data-rec-dow="6">Sáb</label>
+          </div>
         </div>
         <div id="edit-responsavel-wrap" class="form-field">
           <label>Responsáveis</label>

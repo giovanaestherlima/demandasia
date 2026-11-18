@@ -208,6 +208,7 @@ const els = {
   editEtiquetas: document.getElementById('edit-etiquetas'),
   editRecorrencia: document.getElementById('edit-recorrencia'),
   editDiaMesWrap: document.getElementById('edit-dia-mes-wrap'),
+  editDiasSemanaWrap: document.getElementById('edit-dias-semana-wrap'),
   editDiaMes: document.getElementById('edit-dia-mes'),
   newSubtaskInput: document.getElementById('new-subtask-input'),
   addSubtaskBtn: document.getElementById('add-subtask-btn'),
@@ -975,6 +976,11 @@ function setPreviewReadOnlyMode(readOnly) {
       chk.disabled = readOnly;
     });
   }
+  if (els.editDiasSemanaWrap) {
+    els.editDiasSemanaWrap.querySelectorAll('input[data-rec-dow]').forEach((chk) => {
+      chk.disabled = readOnly;
+    });
+  }
   if (els.previewSaveBtn) {
     els.previewSaveBtn.classList.toggle('hidden', readOnly);
   }
@@ -1058,7 +1064,14 @@ function fillPreviewFields(d) {
   const recTipo = d.recorrencia?.tipo || 'nenhuma';
   els.editRecorrencia.value = recTipo;
   els.editDiaMesWrap.classList.toggle('hidden', recTipo !== 'dia_mes');
+  els.editDiasSemanaWrap?.classList.toggle('hidden', recTipo !== 'dias_semana');
   els.editDiaMes.value = d.recorrencia?.diaMes || 1;
+  if (els.editDiasSemanaWrap) {
+    const setDias = new Set((d.recorrencia?.diasSemana || []).map(Number));
+    els.editDiasSemanaWrap.querySelectorAll('input[data-rec-dow]').forEach((chk) => {
+      chk.checked = setDias.has(Number(chk.dataset.recDow));
+    });
+  }
 
   renderSubtasksEditor();
   if (modoEstudanteAtivo() && studentUiMod) {
@@ -1469,6 +1482,7 @@ function bindEvents() {
 
   els.editRecorrencia.addEventListener('change', () => {
     els.editDiaMesWrap.classList.toggle('hidden', els.editRecorrencia.value !== 'dia_mes');
+    els.editDiasSemanaWrap?.classList.toggle('hidden', els.editRecorrencia.value !== 'dias_semana');
   });
 
   els.addSubtaskBtn.addEventListener('click', () => {
@@ -1528,12 +1542,18 @@ function bindEvents() {
       .filter(Boolean);
 
     const recTipo = els.editRecorrencia.value;
+    const diasSemana = els.editDiasSemanaWrap
+      ? Array.from(els.editDiasSemanaWrap.querySelectorAll('input[data-rec-dow]:checked'))
+          .map((chk) => Number(chk.dataset.recDow))
+          .sort((a, b) => a - b)
+      : [];
     const recorrencia =
-      recTipo === 'nenhuma'
+      recTipo === 'nenhuma' || (recTipo === 'dias_semana' && diasSemana.length === 0)
         ? null
         : {
             tipo: recTipo,
-            ...(recTipo === 'dia_mes' ? { diaMes: Number(els.editDiaMes.value) || 1 } : {})
+            ...(recTipo === 'dia_mes' ? { diaMes: Number(els.editDiaMes.value) || 1 } : {}),
+            ...(recTipo === 'dias_semana' ? { diasSemana } : {})
           };
 
     const responsaveis = els.editResponsaveisList
@@ -1955,10 +1975,7 @@ function init() {
           const jaViuBomDia = localStorage.getItem('pauta_bom_dia_date') === hoje;
           if (!jaViuBomDia && demandas.some((d) => d.status !== 'concluida')) {
             localStorage.setItem('pauta_bom_dia_date', hoje);
-            openMorningDialog(true);
-          } else if (!state.prefs.silenciarResumoFalado) {
-            const { text } = buildSummaryMessage(demandas);
-            speakText(text);
+            openMorningDialog(false);
           }
         }
       },

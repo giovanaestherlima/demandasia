@@ -31,9 +31,12 @@ const LABEL_PRIORIDADE = {
 const LABEL_RECORRENCIA = {
   diaria: 'Diária',
   semanal: 'Semanal',
+  dias_semana: 'Dias da semana',
   mensal: 'Mensal',
   dia_mes: 'Mensal (dia fixo)'
 };
+
+const DIAS_SEMANA_CURTO = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
 const TAG_PALETTE = [
   { bg: 'rgba(31, 111, 120, 0.14)', fg: 'var(--primary)' },
@@ -540,7 +543,11 @@ export function renderDemandsList(container, demandas, prefs, handlers, options 
     }
 
     if (d.recorrencia?.tipo) {
-      meta.appendChild(createBadge(`↻ ${LABEL_RECORRENCIA[d.recorrencia.tipo] || 'Recorrente'}`, 'badge-primary'));
+      let recLabel = LABEL_RECORRENCIA[d.recorrencia.tipo] || 'Recorrente';
+      if (d.recorrencia.tipo === 'dias_semana' && Array.isArray(d.recorrencia.diasSemana) && d.recorrencia.diasSemana.length > 0) {
+        recLabel = d.recorrencia.diasSemana.map((n) => DIAS_SEMANA_CURTO[n] || '').filter(Boolean).join(', ');
+      }
+      meta.appendChild(createBadge(`↻ ${recLabel}`, 'badge-primary'));
     }
 
     if (isSnoozed(d)) {

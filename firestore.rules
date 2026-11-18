@@ -447,7 +447,7 @@ service cloud.firestore {
                data.recorrencia.keys().size() <= 10 &&
                'tipo' in data.recorrencia &&
                data.recorrencia.tipo is string &&
-               data.recorrencia.tipo in ['nenhuma', 'diaria', 'semanal', 'mensal', 'dia_mes']
+               data.recorrencia.tipo in ['nenhuma', 'diaria', 'semanal', 'mensal', 'dia_mes', 'dias_semana']
              )) &&
              (!('etiquetas' in data) || isValidList(data.etiquetas, 20)) &&
              (!('responsavelUid' in data) || data.responsavelUid == null || (data.responsavelUid is string && data.responsavelUid.size() <= 128)) &&

@@ -66,11 +66,18 @@ function normalizeRecorrencia(rec) {
   if (!rec || typeof rec !== 'object' || !rec.tipo || rec.tipo === 'nenhuma') {
     return null;
   }
-  const tiposValidos = new Set(['diaria', 'semanal', 'mensal', 'dia_mes']);
+  const tiposValidos = new Set(['diaria', 'semanal', 'mensal', 'dia_mes', 'dias_semana']);
   if (!tiposValidos.has(rec.tipo)) return null;
   const out = { tipo: rec.tipo };
   if (rec.tipo === 'dia_mes' && rec.diaMes) {
     out.diaMes = Math.min(31, Math.max(1, Number(rec.diaMes) || 1));
+  }
+  if (rec.tipo === 'dias_semana') {
+    const dias = Array.isArray(rec.diasSemana)
+      ? Array.from(new Set(rec.diasSemana.map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n <= 6))).sort((a, b) => a - b)
+      : [];
+    if (dias.length === 0) return null;
+    out.diasSemana = dias;
   }
   return out;
 }
@@ -245,6 +252,12 @@ export function computeNextRecurrenceDate(prazoAtual, recorrencia) {
   } else if (recorrencia.tipo === 'dia_mes') {
     const dia = Math.min(31, Math.max(1, Number(recorrencia.diaMes) || 1));
     base.setMonth(base.getMonth() + 1, dia);
+  } else if (recorrencia.tipo === 'dias_semana' && Array.isArray(recorrencia.diasSemana) && recorrencia.diasSemana.length > 0) {
+    const setDias = new Set(recorrencia.diasSemana.map(Number));
+    for (let i = 1; i <= 7; i += 1) {
+      base.setDate(base.getDate() + 1);
+      if (setDias.has(base.getDay())) break;
+    }
   }
 
   const y = base.getFullYear();
