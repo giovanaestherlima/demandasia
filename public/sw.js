@@ -3,7 +3,7 @@
 // Nunca armazena arquivos .js ou .html antigos em cache de fallback.
 // ============================================================================
 
-const CACHE_NAME = 'pauta-shell-v8';
+const CACHE_NAME = 'pauta-shell-v9';
 const STATIC_ASSETS = [
   '/manifest.json',
   '/icons/icon-192.png',

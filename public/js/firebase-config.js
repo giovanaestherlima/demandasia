@@ -7,6 +7,7 @@ import { getAuth } from 'https://www.gstatic.com/firebasejs/13.4.0/firebase-auth
 import {
   getFirestore,
   initializeFirestore,
+  memoryLocalCache,
   persistentLocalCache,
   persistentMultipleTabManager
 } from 'https://www.gstatic.com/firebasejs/13.4.0/firebase-firestore.js';
@@ -72,13 +73,32 @@ if (isFirebaseConfigured()) {
 
   auth = getAuth(app);
 
-  // Habilita persistência offline em IndexedDB (com fallback se o navegador bloquear)
+  // No iPhone/iPad em modo PWA (Tela de Início), IndexedDB multi-aba do WebKit trava o Firestore.
+  // Usamos memoryLocalCache + auto-detect long polling no iOS/standalone para resposta instantânea.
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isStandalone = window.navigator.standalone === true ||
+    window.matchMedia?.('(display-mode: standalone)').matches;
+
   try {
-    db = initializeFirestore(app, {
-      localCache: persistentLocalCache({
-        tabManager: persistentMultipleTabManager()
-      })
-    });
+    if (isIOS && isStandalone) {
+      db = initializeFirestore(app, {
+        localCache: memoryLocalCache(),
+        experimentalAutoDetectLongPolling: true
+      });
+    } else if (isIOS) {
+      db = initializeFirestore(app, {
+        localCache: persistentLocalCache(),
+        experimentalAutoDetectLongPolling: true
+      });
+    } else {
+      db = initializeFirestore(app, {
+        localCache: persistentLocalCache({
+          tabManager: persistentMultipleTabManager()
+        }),
+        experimentalAutoDetectLongPolling: true
+      });
+    }
   } catch (err) {
     console.warn('[Pauta] Persistência offline indisponível, usando Firestore padrão:', err);
     db = getFirestore(app);
