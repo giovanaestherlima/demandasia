@@ -1,15 +1,11 @@
 // ============================================================================
-// Service Worker do Pauta — Cache estático para funcionamento offline da UI
+// Service Worker do Pauta — Mantém app sempre atualizado e online 24/7
+// Nunca armazena arquivos .js ou .html antigos em cache de fallback.
 // ============================================================================
 
-const CACHE_NAME = 'pauta-shell-v7';
+const CACHE_NAME = 'pauta-shell-v8';
 const STATIC_ASSETS = [
-  '/',
-  '/index.html',
   '/manifest.json',
-  '/css/tokens.css',
-  '/css/base.css',
-  '/css/components.css',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
   '/icons/icon-maskable-192.png',
@@ -41,10 +37,17 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return;
 
   const url = new URL(request.url);
-  // Nunca intercepta chamadas externas (Firebase, Google APIs, Fonts)
   if (url.origin !== self.location.origin) return;
 
-  // Estratégia Network-First com fallback para cache (mantém app sempre atualizado)
+  // Para HTML e JS: sempre busca direto da rede sem cache antigo
+  if (request.mode === 'navigate' || url.pathname.endsWith('.js') || url.pathname.endsWith('.html')) {
+    event.respondWith(
+      fetch(request, { cache: 'no-store' }).catch(() => caches.match(request))
+    );
+    return;
+  }
+
+  // Para CSS, ícones e imagens: Network-First com cache atualizado
   event.respondWith(
     fetch(request, { cache: 'no-cache' })
       .then((networkResponse) => {
@@ -54,14 +57,6 @@ self.addEventListener('fetch', (event) => {
         }
         return networkResponse;
       })
-      .catch(() =>
-        caches.match(request, { ignoreSearch: true }).then((cached) => {
-          if (cached) return cached;
-          if (request.mode === 'navigate') {
-            return caches.match('/index.html');
-          }
-          return Response.error();
-        })
-      )
+      .catch(() => caches.match(request, { ignoreSearch: true }))
   );
 });
