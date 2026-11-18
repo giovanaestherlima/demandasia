@@ -4,38 +4,76 @@ rules_version = '2';
 // Modelo de Dados Assumido (App "Pauta" - Assistente de Demandas)
 // ===============================================================
 //
+// 1. Coleções Legadas (mantidas intactas para migração e compatibilidade):
+//
 // Coleção: users/{uid}/demandas/{demandaId}
-//   Campos obrigatórios:
-//   - titulo: string (obrigatório, 1..120 caracteres)
-//   - descricao: string (obrigatório, 0..5000 caracteres)
-//   - prioridade: string (obrigatório, 'baixa' | 'media' | 'alta' | 'urgente')
-//   - prazo: null | string (obrigatório, máx. 25 caracteres)
-//   - categoria: null | string (obrigatório, máx. 80 caracteres)
-//   - status: string (obrigatório, 'pendente' | 'em_andamento' | 'concluida')
-//   - origem: string (obrigatório, 'voz' | 'texto')
-//   - textoOriginal: string (obrigatório, 0..5000 caracteres)
-//   - criadoEm: timestamp (obrigatório, imutável após criação)
-//   - atualizadoEm: timestamp (obrigatório)
-//   - concluidoEm: null | timestamp (obrigatório)
-//   Campos opcionais:
-//   - subtarefas: list (opcional, máx. 50 itens)
-//   - adiadoAte: null | string (opcional, máx. 25 caracteres)
-//   - recorrencia: null | map (opcional, se map, tipo in ['nenhuma', 'diaria', 'semanal', 'mensal', 'dia_mes'])
-//   - etiquetas: list (opcional, máx. 20 itens)
-//   - historico: list (opcional, máx. 100 itens)
+//   - titulo: string (obrigatório, 1..120)
+//   - descricao: string (obrigatório, 0..5000)
+//   - prioridade: string ('baixa' | 'media' | 'alta' | 'urgente')
+//   - prazo: null | string (máx. 25)
+//   - categoria: null | string (máx. 80)
+//   - status: string ('pendente' | 'em_andamento' | 'concluida')
+//   - origem: string ('voz' | 'texto')
+//   - textoOriginal: string (0..5000)
+//   - criadoEm: timestamp (imutável)
+//   - atualizadoEm: timestamp
+//   - concluidoEm: null | timestamp
+//   - Campos opcionais: subtarefas, adiadoAte, recorrencia, etiquetas, historico
 //
 // Coleção: users/{uid}/configuracoes/{docId}
-//   Quando docId == 'preferencias' (suporta escrita parcial / merge):
-//   - salvarDiretoSemPrevia: bool
-//   - silenciarResumoFalado: bool
-//   - intervaloLembreteMinutos: number (1..1440)
-//   - diasAvisoAmarelo: number (1..365)
-//   - diasAvisoLaranja: number (1..365)
-//   - diasAvisoVermelho: number (1..365)
-//   - tema: string ('sistema' | 'claro' | 'escuro')
-//   - horarioSilencioInicio: string (máx. 10 caracteres)
-//   - horarioSilencioFim: string (máx. 10 caracteres)
-//   - limiteLembretesHora: number (1..60)
+//   - Preferências e configurações pessoais do usuário
+//
+// 2. Perfil e Espaços do Usuário:
+//
+// Documento: users/{uid}
+//   - Perfil privado e metadados de migração do usuário
+//
+// Coleção: users/{uid}/meusEspacos/{wsId}
+//   - Índice pessoal de workspaces dos quais o usuário participa
+//
+// 3. Workspaces Colaborativos:
+//
+// Coleção: workspaces/{wsId}
+//   - nome: string (obrigatório, 1..80)
+//   - tipo: string (obrigatório, 'pessoal' | 'equipe')
+//   - criadoPor: string (obrigatório, UID do criador, imutável)
+//   - criadoEm: timestamp (opcional/recomendado)
+//   - atualizadoEm: timestamp (opcional)
+//
+// Coleção: workspaces/{wsId}/membros/{memberUid}
+//   - papel: string (obrigatório, 'admin' | 'editor' | 'leitor')
+//   - conviteId: string (opcional, usado no auto-ingresso via convite)
+//   - ultimaVisita: timestamp | string (opcional, atualizável pelo próprio membro)
+//   - vistoPorUltimo: timestamp | string (opcional, atualizável pelo próprio membro)
+//
+// Coleção: workspaces/{wsId}/demandas/{demandaId}
+//   - titulo: string (1..120), descricao: string (0..5000)
+//   - prioridade: 'baixa' | 'media' | 'alta' | 'urgente'
+//   - status: 'pendente' | 'em_andamento' | 'concluida'
+//   - origem: 'voz' | 'texto'
+//   - criadoPorUid: string (obrigatório, imutável)
+//   - criadoEm: timestamp (obrigatório, imutável)
+//   - atualizadoEm: timestamp (obrigatório)
+//
+// Coleção: workspaces/{wsId}/demandas/{demandaId}/comentarios/{cid}
+//   - autorUid: string (obrigatório, imutável)
+//   - texto: string (obrigatório, 1..2000)
+//   - criadoEm: timestamp (imutável se presente)
+//
+// Coleção: workspaces/{wsId}/demandas/{demandaId}/historico/{eid}
+//   - autorUid: string (obrigatório)
+//   - Append-only (sem update/delete)
+//
+// Coleção: convites/{token}
+//   - wsId: string (obrigatório, imutável)
+//   - criadoPorUid: string (obrigatório, imutável)
+//   - papel: 'editor' | 'leitor' (nunca 'admin')
+//   - tipo: 'link' | 'email'
+//   - emailAlvo: string (obrigatório quando tipo == 'email', em minúsculas)
+//   - usos: int (inicia em 0, incrementa +1 por uso)
+//   - usosMax: int (>= 1)
+//   - ativo: bool (inicia true)
+//   - expiraEm: timestamp
 //
 // ===============================================================
 
@@ -84,10 +122,72 @@ service cloud.firestore {
     }
 
     // ===============================================================
-    // Validadores de Domínio
+    // Funções Auxiliares de Workspace e Papéis (RBAC)
+    // Nota de custo: cada chamada a exists() ou get() consome 1 leitura
+    // (o Firestore reutiliza em cache chamadas idênticas na mesma avaliação).
     // ===============================================================
 
-    // Valida a estrutura completa de uma demanda (usado em create e update)
+    // Verifica se o usuário autenticado é membro do workspace (custo: 1 leitura via exists)
+    function isWsMember(wsId) {
+      return isAuthenticated() &&
+             exists(/databases/$(database)/documents/workspaces/$(wsId)/membros/$(request.auth.uid));
+    }
+
+    // Obtém o papel ('admin' | 'editor' | 'leitor') do usuário no workspace (custo: 1 leitura via get)
+    function wsRole(wsId) {
+      return get(/databases/$(database)/documents/workspaces/$(wsId)/membros/$(request.auth.uid)).data.papel;
+    }
+
+    // Verifica se o usuário é administrador do workspace (custo: 1 exists + 1 get = até 2 leituras)
+    function isWsAdmin(wsId) {
+      return isWsMember(wsId) && wsRole(wsId) == 'admin';
+    }
+
+    // Verifica se o usuário é editor ou administrador do workspace (custo: 1 exists + 1 get = até 2 leituras)
+    function isWsEditorOrAdmin(wsId) {
+      return isWsMember(wsId) && wsRole(wsId) in ['admin', 'editor'];
+    }
+
+    // Valida auto-ingresso via convite (custo: 1 exists + 1 get no documento de convite = até 2 leituras)
+    function isValidInviteJoin(wsId, token, papel) {
+      return token is string &&
+             token.size() >= 1 &&
+             token.size() <= 128 &&
+             exists(/databases/$(database)/documents/convites/$(token)) &&
+             isInviteDataValidForJoin(
+               get(/databases/$(database)/documents/convites/$(token)).data,
+               wsId,
+               papel
+             );
+    }
+
+    // Verifica todas as condições de validade do documento de convite para ingresso
+    function isInviteDataValidForJoin(convite, wsId, papel) {
+      return convite.ativo == true &&
+             convite.expiraEm is timestamp &&
+             convite.expiraEm > request.time &&
+             convite.wsId == wsId &&
+             convite.papel == papel &&
+             convite.papel in ['editor', 'leitor'] &&
+             convite.usos is int &&
+             convite.usosMax is int &&
+             convite.usos < convite.usosMax &&
+             (
+               !('tipo' in convite) ||
+               convite.tipo != 'email' ||
+               (
+                 request.auth.token.email_verified == true &&
+                 request.auth.token.email is string &&
+                 convite.emailAlvo == request.auth.token.email.lower()
+               )
+             );
+    }
+
+    // ===============================================================
+    // Validadores de Domínio (Legado)
+    // ===============================================================
+
+    // Valida a estrutura completa de uma demanda legada (usado em create e update)
     function isValidDemanda(data) {
       let requiredFields = [
         'titulo',
@@ -216,10 +316,168 @@ service cloud.firestore {
     }
 
     // ===============================================================
+    // Validadores de Domínio (Workspaces Colaborativos)
+    // ===============================================================
+
+    // Valida o documento raiz do usuário (perfil e estado de migração)
+    function isValidUserDoc(data) {
+      return data.keys().size() <= 30 &&
+             (!('nome' in data) || data.nome == null || (data.nome is string && data.nome.size() <= 120)) &&
+             (!('email' in data) || data.email == null || (data.email is string && data.email.size() <= 254)) &&
+             (!('fotoURL' in data) || data.fotoURL == null || (data.fotoURL is string && data.fotoURL.size() <= 500));
+    }
+
+    // Valida entrada em users/{uid}/meusEspacos/{wsId}
+    function isValidMeuEspaco(data) {
+      return data.keys().size() <= 20 &&
+             (!('nome' in data) || (data.nome is string && data.nome.size() >= 1 && data.nome.size() <= 80)) &&
+             (!('tipo' in data) || (data.tipo is string && data.tipo in ['pessoal', 'equipe'])) &&
+             (!('papel' in data) || (data.papel is string && data.papel in ['admin', 'editor', 'leitor']));
+    }
+
+    // Valida criação e atualização de workspace
+    function isValidWorkspace(data) {
+      return data.keys().size() <= 20 &&
+             data.criadoPor is string &&
+             data.criadoPor.size() >= 1 &&
+             data.criadoPor.size() <= 128 &&
+             data.tipo is string &&
+             data.tipo in ['pessoal', 'equipe'] &&
+             data.nome is string &&
+             data.nome.size() >= 1 &&
+             data.nome.size() <= 80 &&
+             (!('descricao' in data) || data.descricao == null || (data.descricao is string && data.descricao.size() <= 500));
+    }
+
+    // Valida documento de membro do workspace
+    function isValidMembro(data) {
+      return data.keys().size() <= 20 &&
+             data.papel is string &&
+             data.papel in ['admin', 'editor', 'leitor'] &&
+             (!('nome' in data) || data.nome == null || (data.nome is string && data.nome.size() <= 120)) &&
+             (!('email' in data) || data.email == null || (data.email is string && data.email.size() <= 254)) &&
+             (!('fotoURL' in data) || data.fotoURL == null || (data.fotoURL is string && data.fotoURL.size() <= 500)) &&
+             (!('conviteId' in data) || data.conviteId == null || (data.conviteId is string && data.conviteId.size() <= 128));
+    }
+
+    // Valida demanda dentro de um workspace colaborativo (create e update)
+    function isValidWsDemanda(data) {
+      let requiredFields = [
+        'titulo',
+        'descricao',
+        'prioridade',
+        'status',
+        'origem',
+        'criadoPorUid',
+        'criadoEm',
+        'atualizadoEm'
+      ];
+
+      return hasRequiredFields(requiredFields) &&
+             data.keys().size() <= 30 &&
+             data.titulo is string &&
+             data.titulo.size() >= 1 &&
+             data.titulo.size() <= 120 &&
+             data.descricao is string &&
+             data.descricao.size() >= 0 &&
+             data.descricao.size() <= 5000 &&
+             data.prioridade is string &&
+             data.prioridade in ['baixa', 'media', 'alta', 'urgente'] &&
+             data.status is string &&
+             data.status in ['pendente', 'em_andamento', 'concluida'] &&
+             data.origem is string &&
+             data.origem in ['voz', 'texto'] &&
+             data.criadoPorUid is string &&
+             data.criadoPorUid.size() >= 1 &&
+             data.criadoPorUid.size() <= 128 &&
+             data.criadoEm is timestamp &&
+             data.atualizadoEm is timestamp &&
+             (!('prazo' in data) || data.prazo == null || (data.prazo is string && data.prazo.size() <= 25)) &&
+             (!('categoria' in data) || data.categoria == null || (data.categoria is string && data.categoria.size() <= 80)) &&
+             (!('textoOriginal' in data) || (data.textoOriginal is string && data.textoOriginal.size() <= 5000)) &&
+             (!('concluidoEm' in data) || data.concluidoEm == null || data.concluidoEm is timestamp) &&
+             (!('subtarefas' in data) || isValidList(data.subtarefas, 50)) &&
+             (!('adiadoAte' in data) || data.adiadoAte == null || (data.adiadoAte is string && data.adiadoAte.size() <= 25)) &&
+             (!('recorrencia' in data) || data.recorrencia == null || (
+               data.recorrencia is map &&
+               data.recorrencia.keys().size() <= 10 &&
+               'tipo' in data.recorrencia &&
+               data.recorrencia.tipo is string &&
+               data.recorrencia.tipo in ['nenhuma', 'diaria', 'semanal', 'mensal', 'dia_mes']
+             )) &&
+             (!('etiquetas' in data) || isValidList(data.etiquetas, 20)) &&
+             (!('responsavelUid' in data) || data.responsavelUid == null || (data.responsavelUid is string && data.responsavelUid.size() <= 128)) &&
+             (!('responsavelNome' in data) || data.responsavelNome == null || (data.responsavelNome is string && data.responsavelNome.size() <= 120)) &&
+             (!('criadoPorNome' in data) || data.criadoPorNome == null || (data.criadoPorNome is string && data.criadoPorNome.size() <= 120));
+    }
+
+    // Valida comentário em demanda do workspace
+    function isValidComentario(data) {
+      return data.keys().size() <= 15 &&
+             data.autorUid is string &&
+             data.autorUid.size() >= 1 &&
+             data.autorUid.size() <= 128 &&
+             data.texto is string &&
+             data.texto.size() >= 1 &&
+             data.texto.size() <= 2000 &&
+             (!('autorNome' in data) || data.autorNome == null || (data.autorNome is string && data.autorNome.size() <= 120)) &&
+             (!('criadoEm' in data) || data.criadoEm is timestamp) &&
+             (!('atualizadoEm' in data) || data.atualizadoEm is timestamp) &&
+             (!('editado' in data) || data.editado is bool);
+    }
+
+    // Valida evento no histórico append-only da demanda
+    function isValidHistoricoItem(data) {
+      return data.keys().size() <= 15 &&
+             data.autorUid is string &&
+             data.autorUid.size() >= 1 &&
+             data.autorUid.size() <= 128 &&
+             (!('acao' in data) || (data.acao is string && data.acao.size() >= 1 && data.acao.size() <= 80)) &&
+             (!('detalhe' in data) || data.detalhe == null || (data.detalhe is string && data.detalhe.size() <= 1000)) &&
+             (!('criadoEm' in data) || data.criadoEm is timestamp);
+    }
+
+    // Valida criação de convite
+    function isValidConviteCreate(data) {
+      return data.keys().size() <= 20 &&
+             data.wsId is string &&
+             data.wsId.size() >= 1 &&
+             data.wsId.size() <= 128 &&
+             data.criadoPorUid is string &&
+             data.criadoPorUid.size() >= 1 &&
+             data.criadoPorUid.size() <= 128 &&
+             data.papel in ['editor', 'leitor'] &&
+             data.usos == 0 &&
+             data.usosMax is int &&
+             data.usosMax >= 1 &&
+             data.usosMax <= 1000 &&
+             data.ativo == true &&
+             data.expiraEm is timestamp &&
+             (!('tipo' in data) || data.tipo in ['link', 'email']) &&
+             (
+               !('tipo' in data) ||
+               data.tipo != 'email' ||
+               (data.emailAlvo is string && data.emailAlvo.size() >= 3 && data.emailAlvo.size() <= 254)
+             );
+    }
+
+    // ===============================================================
     // Regras de Acesso por Coleção
     // ===============================================================
 
-    // Demandas do usuário: apenas o próprio usuário autenticado pode ler e gerenciar
+    // Documento raiz do usuário: apenas o próprio usuário autenticado pode ler e gerenciar
+    match /users/{uid} {
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid) && isValidUserDoc(request.resource.data);
+    }
+
+    // Lista pessoal de workspaces do usuário: apenas o próprio usuário autenticado
+    match /users/{uid}/meusEspacos/{wsId} {
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid) && isValidMeuEspaco(request.resource.data);
+    }
+
+    // Demandas legadas do usuário: mantidas intactas para acesso durante e após migração
     match /users/{uid}/demandas/{demandaId} {
       allow read: if isOwner(uid);
       allow create: if isOwner(uid) && isValidDemanda(request.resource.data);
@@ -229,12 +487,201 @@ service cloud.firestore {
       allow delete: if isOwner(uid);
     }
 
-    // Configurações do usuário: apenas o próprio usuário autenticado pode ler e gerenciar
+    // Configurações legadas do usuário: mantidas intactas
     match /users/{uid}/configuracoes/{docId} {
       allow read: if isOwner(uid);
       allow create: if isOwner(uid) && isValidConfiguracao(docId, request.resource.data);
       allow update: if isOwner(uid) && isValidConfiguracao(docId, request.resource.data);
       allow delete: if isOwner(uid);
+    }
+
+    // Workspaces colaborativos
+    match /workspaces/{wsId} {
+      // Leitura: apenas membros do workspace (custo: 1 leitura via exists)
+      allow read: if isWsMember(wsId);
+
+      // Criação: usuário autenticado definindo a si mesmo como criadoPor e validando campos obrigatórios
+      allow create: if isAuthenticated() &&
+                       request.resource.data.criadoPor == request.auth.uid &&
+                       isValidWorkspace(request.resource.data);
+
+      // Atualização: apenas admin do workspace; criadoPor é imutável (custo: até 2 leituras)
+      allow update: if isWsAdmin(wsId) &&
+                       isValidWorkspace(request.resource.data) &&
+                       request.resource.data.criadoPor == resource.data.criadoPor;
+
+      // Exclusão: apenas admin que também é o criador original do workspace (custo: até 2 leituras)
+      allow delete: if isWsAdmin(wsId) &&
+                       resource.data.criadoPor == request.auth.uid;
+
+      // Membros do workspace
+      match /membros/{memberUid} {
+        // Leitura: qualquer membro do workspace (custo: 1 leitura)
+        allow read: if isWsMember(wsId);
+
+        // Criação:
+        // 1) Criador do workspace adicionando a si mesmo como primeiro admin (custo: 1 get em workspaces)
+        // 2) Admin existente adicionando membro (custo: até 2 leituras em membros)
+        // 3) Auto-ingresso com convite válido (custo: até 2 leituras em convites)
+        allow create: if isAuthenticated() &&
+                         isValidMembro(request.resource.data) &&
+                         (
+                           (
+                             memberUid == request.auth.uid &&
+                             request.resource.data.papel == 'admin' &&
+                             get(/databases/$(database)/documents/workspaces/$(wsId)).data.criadoPor == request.auth.uid
+                           ) ||
+                           isWsAdmin(wsId) ||
+                           (
+                             memberUid == request.auth.uid &&
+                             request.resource.data.conviteId is string &&
+                             isValidInviteJoin(
+                               wsId,
+                               request.resource.data.conviteId,
+                               request.resource.data.papel
+                             )
+                           )
+                         );
+
+        // Atualização:
+        // 1) Admin do workspace (não pode alterar o papel do criador para fora de 'admin'; custo: até 3 leituras)
+        // 2) Próprio membro atualizando apenas ultimaVisita e/ou vistoPorUltimo (custo: 0 leituras extras)
+        allow update: if isAuthenticated() &&
+                         (
+                           (
+                             isWsAdmin(wsId) &&
+                             isValidMembro(request.resource.data) &&
+                             (
+                               memberUid != get(/databases/$(database)/documents/workspaces/$(wsId)).data.criadoPor ||
+                               request.resource.data.papel == 'admin'
+                             )
+                           ) ||
+                           (
+                             memberUid == request.auth.uid &&
+                             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ultimaVisita', 'vistoPorUltimo']) &&
+                             (!('ultimaVisita' in request.resource.data) || request.resource.data.ultimaVisita is timestamp || request.resource.data.ultimaVisita is string) &&
+                             (!('vistoPorUltimo' in request.resource.data) || request.resource.data.vistoPorUltimo is timestamp || request.resource.data.vistoPorUltimo is string)
+                           )
+                         );
+
+        // Exclusão: admin removendo outro membro ou o próprio membro saindo; nunca remove o criador (custo: até 3 leituras)
+        allow delete: if isAuthenticated() &&
+                         memberUid != get(/databases/$(database)/documents/workspaces/$(wsId)).data.criadoPor &&
+                         (isWsAdmin(wsId) || memberUid == request.auth.uid);
+      }
+
+      // Demandas do workspace colaborativo
+      match /demandas/{demandaId} {
+        // Leitura: qualquer membro do workspace (custo: 1 leitura)
+        allow read: if isWsMember(wsId);
+
+        // Criação: editor ou admin; criadoPorUid deve corresponder ao usuário autenticado (custo: até 2 leituras)
+        allow create: if isWsEditorOrAdmin(wsId) &&
+                         request.resource.data.criadoPorUid == request.auth.uid &&
+                         isValidWsDemanda(request.resource.data);
+
+        // Atualização: editor ou admin; criadoEm e criadoPorUid são imutáveis (custo: até 2 leituras)
+        allow update: if isWsEditorOrAdmin(wsId) &&
+                         isValidWsDemanda(request.resource.data) &&
+                         request.resource.data.criadoEm == resource.data.criadoEm &&
+                         request.resource.data.criadoPorUid == resource.data.criadoPorUid;
+
+        // Exclusão: editor ou admin (custo: até 2 leituras)
+        allow delete: if isWsEditorOrAdmin(wsId);
+
+        // Comentários na demanda
+        match /comentarios/{cid} {
+          // Leitura: qualquer membro do workspace (custo: 1 leitura)
+          allow read: if isWsMember(wsId);
+
+          // Criação: qualquer membro (inclusive leitor) pode comentar com autorUid == request.auth.uid (custo: 1 leitura)
+          allow create: if isWsMember(wsId) &&
+                           request.resource.data.autorUid == request.auth.uid &&
+                           isValidComentario(request.resource.data);
+
+          // Atualização: autor do comentário ou admin do workspace; autorUid e criadoEm imutáveis (custo: até 2 leituras)
+          allow update: if isWsMember(wsId) &&
+                           (resource.data.autorUid == request.auth.uid || isWsAdmin(wsId)) &&
+                           isValidComentario(request.resource.data) &&
+                           request.resource.data.autorUid == resource.data.autorUid &&
+                           (!('criadoEm' in resource.data) || request.resource.data.criadoEm == resource.data.criadoEm);
+
+          // Exclusão: autor do comentário ou admin do workspace (custo: até 2 leituras)
+          allow delete: if isWsMember(wsId) &&
+                           (resource.data.autorUid == request.auth.uid || isWsAdmin(wsId));
+        }
+
+        // Histórico de atividades da demanda (append-only)
+        match /historico/{eid} {
+          // Leitura: qualquer membro do workspace (custo: 1 leitura)
+          allow read: if isWsMember(wsId);
+
+          // Criação: editor ou admin registrando evento em seu próprio autorUid (custo: até 2 leituras)
+          allow create: if isWsEditorOrAdmin(wsId) &&
+                           request.resource.data.autorUid == request.auth.uid &&
+                           isValidHistoricoItem(request.resource.data);
+
+          // Histórico é imutável (somente inclusão)
+          allow update, delete: if false;
+        }
+      }
+    }
+
+    // Convites para ingresso em workspaces
+    match /convites/{token} {
+      // Leitura individual por token (necessário para fluxo de aceite de link de convite)
+      allow get: if isAuthenticated();
+
+      // Listagem: apenas admins do workspace do convite ou o destinatário de convite por e-mail verificado (custo: até 2 leituras para admin)
+      allow list: if isAuthenticated() &&
+                     (
+                       isWsAdmin(resource.data.wsId) ||
+                       (
+                         resource.data.tipo == 'email' &&
+                         request.auth.token.email_verified == true &&
+                         request.auth.token.email is string &&
+                         resource.data.emailAlvo == request.auth.token.email.lower()
+                       )
+                     );
+
+      // Criação: apenas admin do workspace alvo, papel restrito a 'editor' ou 'leitor', usos == 0, ativo == true (custo: até 2 leituras)
+      allow create: if isAuthenticated() &&
+                       isWsAdmin(request.resource.data.wsId) &&
+                       request.resource.data.criadoPorUid == request.auth.uid &&
+                       isValidConviteCreate(request.resource.data);
+
+      // Atualização:
+      // 1) Admin do workspace (ex.: revogar convite; custo: até 2 leituras)
+      // 2) Usuário ingressando incrementando usos em +1 e opcionalmente atualizando ativo, sem alterar outros campos
+      allow update: if isAuthenticated() &&
+                       (
+                         (
+                           isWsAdmin(resource.data.wsId) &&
+                           request.resource.data.wsId == resource.data.wsId &&
+                           request.resource.data.criadoPorUid == resource.data.criadoPorUid &&
+                           request.resource.data.papel in ['editor', 'leitor']
+                         ) ||
+                         (
+                           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usos', 'ativo']) &&
+                           request.resource.data.usos == resource.data.usos + 1 &&
+                           resource.data.ativo == true &&
+                           resource.data.expiraEm > request.time &&
+                           resource.data.usos < resource.data.usosMax &&
+                           request.resource.data.ativo is bool &&
+                           (
+                             !('tipo' in resource.data) ||
+                             resource.data.tipo != 'email' ||
+                             (
+                               request.auth.token.email_verified == true &&
+                               request.auth.token.email is string &&
+                               resource.data.emailAlvo == request.auth.token.email.lower()
+                             )
+                           )
+                         )
+                       );
+
+      // Exclusão: apenas admin do workspace do convite (custo: até 2 leituras)
+      allow delete: if isAuthenticated() && isWsAdmin(resource.data.wsId);
     }
 
     // Negação padrão: bloqueia leitura e escrita em qualquer outro caminho não especificado

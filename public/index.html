@@ -469,6 +469,11 @@
           <button type="button" id="cfg-notif-btn" class="btn btn-secondary btn-sm">Permitir</button>
         </div>
 
+        <div id="cfg-delete-legacy-wrap" class="switch-row hidden">
+          <span>Dados antigos migrados</span>
+          <button type="button" id="cfg-delete-legacy-btn" class="btn btn-danger btn-sm">Apagar dados antigos</button>
+        </div>
+
         <p class="info-note">
           Os lembretes só funcionam com o Pauta aberto. Para ser avisado com o app fechado, seria necessário um serviço de notificações push (fora do escopo atual).
         </p>
@@ -478,6 +483,21 @@
         <button type="submit" value="save" class="btn btn-primary">Salvar preferências</button>
       </div>
     </form>
+  </dialog>
+
+  <!-- Diálogo de Migração V2 -->
+  <dialog id="migration-dialog" aria-labelledby="migration-dialog-title">
+    <div class="dialog-header">
+      <h2 id="migration-dialog-title">Atualizando seu espaço Pessoal</h2>
+    </div>
+    <div class="dialog-body">
+      <p id="migration-status-text">Preparando migração segura das suas demandas...</p>
+      <progress id="migration-progress" max="100" value="0" style="width:100%;height:14px;"></progress>
+    </div>
+    <div class="dialog-footer">
+      <button type="button" id="migration-delete-legacy-btn" class="btn btn-danger btn-sm hidden">Apagar dados antigos</button>
+      <button type="button" id="migration-close-btn" class="btn btn-primary hidden">Continuar</button>
+    </div>
   </dialog>
 
   <!-- Notificações in-app (toasts) -->

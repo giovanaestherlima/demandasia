@@ -1,5 +1,5 @@
 // ============================================================================
-// Persistência no Cloud Firestore (demandas, histórico, recorrência e prefs)
+// Persistência no Cloud Firestore (workspaces/{wsId}/demandas e preferências)
 // ============================================================================
 
 import {
@@ -16,6 +16,7 @@ import {
   serverTimestamp
 } from 'https://www.gstatic.com/firebasejs/13.4.0/firebase-firestore.js';
 import { db } from './firebase-config.js?v=5';
+import { trackReads, trackWrites } from './workspaces.js?v=5';
 
 export const DEFAULT_PREFERENCES = {
   salvarDiretoSemPrevia: false,
@@ -30,8 +31,8 @@ export const DEFAULT_PREFERENCES = {
   limiteLembretesHora: 4
 };
 
-function demandasCollection(uid) {
-  return collection(db, 'users', uid, 'demandas');
+function demandasCollection(wsId) {
+  return collection(db, 'workspaces', wsId, 'demandas');
 }
 
 function nowISO() {
@@ -85,13 +86,14 @@ function appendHistorico(atual, acao, detalhe = '') {
 }
 
 /**
- * Inscreve um listener em tempo real nas demandas do usuário (mais antigas primeiro).
+ * Inscreve um listener em tempo real nas demandas do espaço ativo.
  */
-export function subscribeDemandas(uid, onData, onError) {
-  const q = query(demandasCollection(uid), orderBy('criadoEm', 'asc'));
+export function subscribeDemandas(wsId, onData, onError) {
+  const q = query(demandasCollection(wsId), orderBy('criadoEm', 'asc'));
   return onSnapshot(
     q,
     (snapshot) => {
+      trackReads(Math.max(1, snapshot.docChanges().length));
       const lista = snapshot.docs.map((d) => ({
         id: d.id,
         ...d.data()
@@ -103,9 +105,12 @@ export function subscribeDemandas(uid, onData, onError) {
 }
 
 /**
- * Cria uma nova demanda no Firestore com suporte a subtarefas, etiquetas, recorrência e histórico.
+ * Cria uma nova demanda em workspaces/{wsId}/demandas.
  */
-export async function createDemanda(uid, dados) {
+export async function createDemanda(wsId, user, dados) {
+  const uid = typeof user === 'string' ? user : user.uid;
+  const userName = typeof user === 'string' ? 'Usuário' : (user.displayName || user.email || 'Usuário');
+
   const payload = {
     titulo: String(dados.titulo || '').trim().slice(0, 120),
     descricao: String(dados.descricao || '').trim().slice(0, 5000),
@@ -120,19 +125,25 @@ export async function createDemanda(uid, dados) {
     recorrencia: normalizeRecorrencia(dados.recorrencia),
     etiquetas: normalizeEtiquetas(dados.etiquetas),
     historico: appendHistorico(dados.historico, 'criada', dados.origem === 'voz' ? 'por voz' : 'por texto'),
+    responsavelUid: dados.responsavelUid ?? null,
+    responsavelNome: dados.responsavelNome ?? null,
+    criadoPorUid: uid,
+    criadoPorNome: userName,
+    atualizadoPorUid: uid,
     criadoEm: serverTimestamp(),
     atualizadoEm: serverTimestamp(),
     concluidoEm: dados.status === 'concluida' ? serverTimestamp() : null
   };
 
-  return addDoc(demandasCollection(uid), payload);
+  trackWrites(1);
+  return addDoc(demandasCollection(wsId), payload);
 }
 
 /**
- * Atualiza uma demanda existente mantendo criadoEm intacto.
+ * Atualiza uma demanda existente em workspaces/{wsId}/demandas.
  */
-export async function updateDemanda(uid, demandaId, dados, historicoAcao = 'editada', detalhe = '') {
-  const ref = doc(db, 'users', uid, 'demandas', demandaId);
+export async function updateDemanda(wsId, uid, demandaId, dados, historicoAcao = 'editada', detalhe = '') {
+  const ref = doc(db, 'workspaces', wsId, 'demandas', demandaId);
   const concluida = dados.status === 'concluida';
 
   const payload = {
@@ -142,10 +153,15 @@ export async function updateDemanda(uid, demandaId, dados, historicoAcao = 'edit
     prazo: dados.prazo ? String(dados.prazo).slice(0, 25) : null,
     categoria: dados.categoria ? String(dados.categoria).trim().slice(0, 80) : null,
     status: dados.status || 'pendente',
+    atualizadoPorUid: uid,
     atualizadoEm: serverTimestamp(),
     concluidoEm: concluida ? (dados.concluidoEm || serverTimestamp()) : null
   };
 
+  if (dados.responsavelUid !== undefined) {
+    payload.responsavelUid = dados.responsavelUid ?? null;
+    payload.responsavelNome = dados.responsavelNome ?? null;
+  }
   if (dados.subtarefas !== undefined) {
     payload.subtarefas = normalizeSubtarefas(dados.subtarefas);
   }
@@ -162,12 +178,10 @@ export async function updateDemanda(uid, demandaId, dados, historicoAcao = 'edit
     payload.historico = appendHistorico(dados.historico, historicoAcao, detalhe);
   }
 
+  trackWrites(1);
   return updateDoc(ref, payload);
 }
 
-/**
- * Calcula a próxima data ISO (YYYY-MM-DD) para uma demanda recorrente.
- */
 export function computeNextRecurrenceDate(prazoAtual, recorrencia) {
   if (!recorrencia || !recorrencia.tipo) return null;
   const base = prazoAtual && /^\d{4}-\d{2}-\d{2}$/.test(prazoAtual)
@@ -196,24 +210,24 @@ export function computeNextRecurrenceDate(prazoAtual, recorrencia) {
   return `${y}-${m}-${d}`;
 }
 
-/**
- * Alterna entre pendente e concluída; se recorrente e concluída, gera próxima ocorrência.
- */
-export async function toggleDemandaStatus(uid, demanda) {
-  const ref = doc(db, 'users', uid, 'demandas', demanda.id);
+export async function toggleDemandaStatus(wsId, user, demanda) {
+  const uid = typeof user === 'string' ? user : user.uid;
+  const ref = doc(db, 'workspaces', wsId, 'demandas', demanda.id);
   const vaiConcluir = demanda.status !== 'concluida';
 
   await updateDoc(ref, {
     status: vaiConcluir ? 'concluida' : 'pendente',
+    atualizadoPorUid: uid,
     atualizadoEm: serverTimestamp(),
     concluidoEm: vaiConcluir ? serverTimestamp() : null,
     historico: appendHistorico(demanda.historico, vaiConcluir ? 'concluida' : 'reaberta')
   });
+  trackWrites(1);
 
   if (vaiConcluir && demanda.recorrencia && demanda.recorrencia.tipo) {
     const proximoPrazo = computeNextRecurrenceDate(demanda.prazo, demanda.recorrencia);
     const subtarefasReset = (demanda.subtarefas || []).map((s) => ({ ...s, concluida: false }));
-    await createDemanda(uid, {
+    await createDemanda(wsId, user, {
       titulo: demanda.titulo,
       descricao: demanda.descricao,
       prioridade: demanda.prioridade,
@@ -225,6 +239,8 @@ export async function toggleDemandaStatus(uid, demanda) {
       subtarefas: subtarefasReset,
       recorrencia: demanda.recorrencia,
       etiquetas: demanda.etiquetas || [],
+      responsavelUid: demanda.responsavelUid ?? null,
+      responsavelNome: demanda.responsavelNome ?? null,
       historico: []
     });
     return { generatedNext: true, proximoPrazo };
@@ -233,32 +249,27 @@ export async function toggleDemandaStatus(uid, demanda) {
   return { generatedNext: false };
 }
 
-/**
- * Adia (soneca) os alertas de uma demanda até uma data ISO sem alterar criadoEm.
- */
-export async function snoozeDemanda(uid, demanda, novaDataISO) {
-  const ref = doc(db, 'users', uid, 'demandas', demanda.id);
+export async function snoozeDemanda(wsId, uid, demanda, novaDataISO) {
+  const ref = doc(db, 'workspaces', wsId, 'demandas', demanda.id);
+  trackWrites(1);
   return updateDoc(ref, {
     adiadoAte: novaDataISO,
+    atualizadoPorUid: uid,
     atualizadoEm: serverTimestamp(),
     historico: appendHistorico(demanda.historico, 'adiada', `até ${novaDataISO}`)
   });
 }
 
-/**
- * Exclui uma demanda permanentemente.
- */
-export async function deleteDemanda(uid, demandaId) {
-  const ref = doc(db, 'users', uid, 'demandas', demandaId);
+export async function deleteDemanda(wsId, demandaId) {
+  const ref = doc(db, 'workspaces', wsId, 'demandas', demandaId);
+  trackWrites(1);
   return deleteDoc(ref);
 }
 
-/**
- * Restaura uma demanda (usado pelo botão "Desfazer").
- */
-export async function restoreDemanda(uid, snapshot) {
+export async function restoreDemanda(wsId, user, snapshot) {
   if (!snapshot) return;
-  const ref = doc(db, 'users', uid, 'demandas', snapshot.id);
+  const uid = typeof user === 'string' ? user : user.uid;
+  const ref = doc(db, 'workspaces', wsId, 'demandas', snapshot.id);
   const payload = {
     titulo: snapshot.titulo || 'Demanda restaurada',
     descricao: snapshot.descricao || '',
@@ -272,17 +283,24 @@ export async function restoreDemanda(uid, snapshot) {
     adiadoAte: snapshot.adiadoAte || null,
     recorrencia: normalizeRecorrencia(snapshot.recorrencia),
     etiquetas: normalizeEtiquetas(snapshot.etiquetas),
+    responsavelUid: snapshot.responsavelUid ?? null,
+    responsavelNome: snapshot.responsavelNome ?? null,
+    criadoPorUid: snapshot.criadoPorUid || uid,
+    criadoPorNome: snapshot.criadoPorNome || 'Usuário',
+    atualizadoPorUid: uid,
     historico: appendHistorico(snapshot.historico, 'editada', 'desfeito'),
     criadoEm: snapshot.criadoEm || serverTimestamp(),
     atualizadoEm: serverTimestamp(),
     concluidoEm: snapshot.concluidoEm || null
   };
+  trackWrites(1);
   return setDoc(ref, payload);
 }
 
 export async function loadPreferences(uid) {
   const ref = doc(db, 'users', uid, 'configuracoes', 'preferencias');
   const snap = await getDoc(ref);
+  trackReads(1);
   if (!snap.exists()) {
     return { ...DEFAULT_PREFERENCES };
   }
@@ -292,5 +310,6 @@ export async function loadPreferences(uid) {
 export async function savePreferences(uid, prefs) {
   const ref = doc(db, 'users', uid, 'configuracoes', 'preferencias');
   const merged = { ...DEFAULT_PREFERENCES, ...prefs };
+  trackWrites(1);
   return setDoc(ref, merged, { merge: true });
 }

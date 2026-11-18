@@ -45,6 +45,13 @@ import {
   suggestPriorityFromHistory
 } from './metrics.js?v=5';
 import {
+  ensureUserAndPersonalWorkspace,
+  checkLegacyDemandsCount,
+  migrateLegacyDemands,
+  deleteLegacyDemands,
+  getQuotaStats
+} from './workspaces.js?v=5';
+import {
   applyTheme,
   filterAndSortDemandas,
   formatDateBR,
@@ -57,6 +64,9 @@ import {
 
 const state = {
   user: null,
+  activeWsId: null,
+  meusEspacos: [],
+  hasLegacyDemands: false,
   demandas: [],
   loadedInitial: false,
   prefs: { ...DEFAULT_PREFERENCES },
@@ -208,7 +218,15 @@ const els = {
   cfgAmarelo: document.getElementById('cfg-amarelo'),
   cfgLaranja: document.getElementById('cfg-laranja'),
   cfgVermelho: document.getElementById('cfg-vermelho'),
-  cfgNotifBtn: document.getElementById('cfg-notif-btn')
+  cfgNotifBtn: document.getElementById('cfg-notif-btn'),
+  cfgDeleteLegacyWrap: document.getElementById('cfg-delete-legacy-wrap'),
+  cfgDeleteLegacyBtn: document.getElementById('cfg-delete-legacy-btn'),
+
+  migrationDialog: document.getElementById('migration-dialog'),
+  migrationStatusText: document.getElementById('migration-status-text'),
+  migrationProgress: document.getElementById('migration-progress'),
+  migrationDeleteLegacyBtn: document.getElementById('migration-delete-legacy-btn'),
+  migrationCloseBtn: document.getElementById('migration-close-btn')
 };
 
 const reminderScheduler = createReminderScheduler(
@@ -508,15 +526,15 @@ async function processRawInput(textoLivre, origem) {
 
   if (state.prefs.salvarDiretoSemPrevia) {
     try {
-      const docRef = await createDemanda(state.user.uid, rascunhoBase);
+      const docRef = await createDemanda(state.activeWsId, state.user, rascunhoBase);
       els.textInput.value = '';
       showToast('Demanda salva! Refinando com IA…');
 
       const result = await parseDemandWithAIStream(texto, { timeoutMs: 8000 });
       recordPerf(localMs, result.elapsedMs, result.cached, result.usedFallback);
 
-      if (!result.usedFallback && state.user) {
-        await updateDemanda(state.user.uid, docRef.id, {
+      if (!result.usedFallback && state.user && state.activeWsId) {
+        await updateDemanda(state.activeWsId, state.user.uid, docRef.id, {
           ...result.demanda,
           status: 'pendente'
         }, 'editada', 'refinamento IA');
@@ -690,10 +708,10 @@ async function executeManagementCommand(intent) {
       replyCommand(`Demanda "${alvoDemanda.titulo}" marcada como concluída.`);
     } else if (intent.acao === 'adiar') {
       const data = intent.novoPrazo || todayLocalISO();
-      await snoozeDemanda(state.user.uid, alvoDemanda, data);
+      await snoozeDemanda(state.activeWsId, state.user.uid, alvoDemanda, data);
       replyCommand(`Demanda "${alvoDemanda.titulo}" adiada até ${formatDateBR(data)}.`);
     } else if (intent.acao === 'alterar_prioridade' && intent.novaPrioridade) {
-      await updateDemanda(state.user.uid, alvoDemanda.id, {
+      await updateDemanda(state.activeWsId, state.user.uid, alvoDemanda.id, {
         ...alvoDemanda,
         prioridade: intent.novaPrioridade
       }, 'editada', `prioridade -> ${intent.novaPrioridade}`);
@@ -732,7 +750,7 @@ async function executeManagementCommand(intent) {
     els.commandConfirmBtn.classList.remove('hidden');
     els.commandConfirmBtn.onclick = async () => {
       els.commandDialog.close();
-      await deleteDemanda(state.user.uid, matches[0].id);
+      await deleteDemanda(state.activeWsId, matches[0].id);
       replyCommand(`Demanda "${matches[0].titulo}" excluída.`);
     };
   }
@@ -744,17 +762,17 @@ async function executeManagementCommand(intent) {
 // Ações nos Cards + Desfazer (~6s)
 // ----------------------------------------------------------------------------
 async function handleToggleDone(demanda) {
-  if (!state.user) return;
+  if (!state.user || !state.activeWsId) return;
   const snapshot = { ...demanda };
   try {
-    const res = await toggleDemandaStatus(state.user.uid, demanda);
+    const res = await toggleDemandaStatus(state.activeWsId, state.user, demanda);
     const msg = res?.generatedNext
       ? `Concluída! Próxima ocorrência criada para ${formatDateBR(res.proximoPrazo)}.`
       : demanda.status === 'concluida'
         ? 'Demanda reaberta.'
         : 'Demanda concluída!';
 
-    showToast(msg, 6000, () => restoreDemanda(state.user.uid, snapshot));
+    showToast(msg, 6000, () => restoreDemanda(state.activeWsId, state.user, snapshot));
   } catch (err) {
     showToast('Erro ao atualizar status.');
     console.error(err);
@@ -998,10 +1016,10 @@ function bindEvents() {
   });
 
   els.batchSaveAllBtn.addEventListener('click', async () => {
-    if (!state.user || state.batchQueue.length === 0) return;
+    if (!state.user || !state.activeWsId || state.batchQueue.length === 0) return;
     try {
       for (const item of state.batchQueue) {
-        await createDemanda(state.user.uid, item);
+        await createDemanda(state.activeWsId, state.user, item);
       }
       const qtd = state.batchQueue.length;
       state.batchQueue = [];
@@ -1015,7 +1033,7 @@ function bindEvents() {
 
   els.previewForm.addEventListener('submit', async (e) => {
     e.preventDefault();
-    if (!state.user) return;
+    if (!state.user || !state.activeWsId) return;
 
     const etiquetas = els.editEtiquetas.value
       .split(',')
@@ -1051,14 +1069,14 @@ function bindEvents() {
     try {
       if (state.editingDemand) {
         const prevSnapshot = { ...state.editingDemand };
-        await updateDemanda(state.user.uid, state.editingDemand.id, {
+        await updateDemanda(state.activeWsId, state.user.uid, state.editingDemand.id, {
           ...dados,
           historico: state.editingDemand.historico,
           concluidoEm: state.editingDemand.concluidoEm
         });
-        showToast('Demanda atualizada.', 6000, () => restoreDemanda(state.user.uid, prevSnapshot));
+        showToast('Demanda atualizada.', 6000, () => restoreDemanda(state.activeWsId, state.user, prevSnapshot));
       } else if (state.pendingDraft) {
-        await createDemanda(state.user.uid, {
+        await createDemanda(state.activeWsId, state.user, {
           ...state.pendingDraft,
           ...dados
         });
@@ -1085,11 +1103,11 @@ function bindEvents() {
     const action = els.deleteDialog.returnValue;
     els.deleteDialog.returnValue = '';
 
-    if (action === 'delete' && state.deletingDemand && state.user) {
+    if (action === 'delete' && state.deletingDemand && state.user && state.activeWsId) {
       const snapshot = { ...state.deletingDemand };
       try {
-        await deleteDemanda(state.user.uid, snapshot.id);
-        showToast('Demanda excluída.', 6000, () => restoreDemanda(state.user.uid, snapshot));
+        await deleteDemanda(state.activeWsId, snapshot.id);
+        showToast('Demanda excluída.', 6000, () => restoreDemanda(state.activeWsId, state.user, snapshot));
       } catch (err) {
         showToast('Erro ao excluir demanda.');
         console.error(err);
@@ -1110,9 +1128,9 @@ function bindEvents() {
   els.snoozeCloseX.addEventListener('click', () => els.snoozeDialog.close());
   els.snoozeCancelBtn.addEventListener('click', () => els.snoozeDialog.close());
   els.snoozeConfirmBtn.addEventListener('click', async () => {
-    if (!state.user || !state.snoozingDemand || !els.snoozeCustomDate.value) return;
+    if (!state.user || !state.activeWsId || !state.snoozingDemand || !els.snoozeCustomDate.value) return;
     try {
-      await snoozeDemanda(state.user.uid, state.snoozingDemand, els.snoozeCustomDate.value);
+      await snoozeDemanda(state.activeWsId, state.user.uid, state.snoozingDemand, els.snoozeCustomDate.value);
       showToast(`Alertas adiados até ${formatDateBR(els.snoozeCustomDate.value)}.`);
       els.snoozeDialog.close();
     } catch {
@@ -1146,7 +1164,7 @@ function bindEvents() {
   els.exportCsvBtn.addEventListener('click', () => exportDemandasToCSV(state.demandas));
   els.exportPdfBtn.addEventListener('click', () => {
     els.metricsDialog.close();
-    setTimeout(() => window.print(), 120);
+    window.print();
   });
 
   // Atalhos de teclado (?)
@@ -1187,18 +1205,42 @@ function bindEvents() {
     els.cfgLaranja.value = state.prefs.diasAvisoLaranja ?? 7;
     els.cfgVermelho.value = state.prefs.diasAvisoVermelho ?? 14;
 
-    if (state.lastPerf) {
-      const modo = state.lastPerf.cached ? 'cache' : state.lastPerf.fallback ? 'fallback' : 'IA';
-      els.cfgPerfSummary.textContent =
-        `Última medição: prévia local em ${state.lastPerf.localMs}ms | ${modo} em ${state.lastPerf.aiMs}ms.`;
+    const quota = getQuotaStats();
+    if (state.lastPerf || state.debugTempo) {
+      const perfPart = state.lastPerf
+        ? `Prévia local: ${state.lastPerf.localMs}ms | ${state.lastPerf.cached ? 'cache' : state.lastPerf.fallback ? 'fallback' : 'IA'}: ${state.lastPerf.aiMs}ms. `
+        : '';
+      els.cfgPerfSummary.textContent = `${perfPart}Cota sessão: ${quota.reads} leituras | ${quota.writes} gravações.`;
       els.cfgPerfSummary.classList.remove('hidden');
     } else {
       els.cfgPerfSummary.classList.add('hidden');
     }
 
+    els.cfgDeleteLegacyWrap.classList.toggle('hidden', !state.hasLegacyDemands);
+
     updateNotifButtonText();
     els.settingsDialog.showModal();
   });
+
+  const handleDeleteLegacy = async () => {
+    if (!state.user) return;
+    if (!window.confirm('Tem certeza que deseja apagar as demandas antigas de users/{uid}/demandas? Elas já foram copiadas para o seu espaço Pessoal.')) {
+      return;
+    }
+    try {
+      const qtd = await deleteLegacyDemands(state.user.uid);
+      state.hasLegacyDemands = false;
+      els.cfgDeleteLegacyWrap.classList.add('hidden');
+      els.migrationDeleteLegacyBtn.classList.add('hidden');
+      showToast(`${qtd} registro(s) antigo(s) apagado(s).`);
+    } catch {
+      showToast('Erro ao apagar dados antigos.');
+    }
+  };
+
+  els.cfgDeleteLegacyBtn.addEventListener('click', handleDeleteLegacy);
+  els.migrationDeleteLegacyBtn.addEventListener('click', handleDeleteLegacy);
+  els.migrationCloseBtn.addEventListener('click', () => els.migrationDialog.close());
 
   els.settingsCloseX.addEventListener('click', () => els.settingsDialog.close('cancel'));
 
@@ -1283,6 +1325,8 @@ function init() {
     }
 
     if (!user) {
+      state.activeWsId = null;
+      state.meusEspacos = [];
       state.demandas = [];
       state.loadedInitial = false;
       state.spokenOnOpen = false;
@@ -1326,8 +1370,49 @@ function init() {
     reminderScheduler.restart();
     handleUrlShortcuts();
 
+    // Etapa 1: garante perfil, espaço "Pessoal" e migração idempotente V2
+    try {
+      const wsSetup = await ensureUserAndPersonalWorkspace(user);
+      state.meusEspacos = wsSetup.meusEspacos;
+      state.activeWsId = wsSetup.espacoAtivo;
+
+      if (!wsSetup.profile.migradoV2) {
+        const legacyDocs = await checkLegacyDemandsCount(user.uid);
+        if (legacyDocs.length > 0) {
+          els.migrationProgress.value = 0;
+          els.migrationStatusText.textContent = `Copiando ${legacyDocs.length} demanda(s) para seu espaço Pessoal...`;
+          els.migrationCloseBtn.classList.add('hidden');
+          els.migrationDeleteLegacyBtn.classList.add('hidden');
+          els.migrationDialog.showModal();
+
+          const resMig = await migrateLegacyDemands(user, wsSetup.espacoAtivo, (pct, done, total) => {
+            els.migrationProgress.value = pct;
+            els.migrationStatusText.textContent = `Copiadas ${done} de ${total} demandas (${pct}%)...`;
+          });
+
+          if (resMig.verified) {
+            state.hasLegacyDemands = true;
+            els.migrationStatusText.textContent = `Migração concluída com sucesso! ${resMig.migrated} demanda(s) conferida(s).`;
+            els.migrationDeleteLegacyBtn.classList.remove('hidden');
+          } else {
+            els.migrationStatusText.textContent = 'Algumas demandas não puderam ser conferidas. Tente recarregar.';
+          }
+          els.migrationCloseBtn.classList.remove('hidden');
+        } else {
+          await migrateLegacyDemands(user, wsSetup.espacoAtivo);
+        }
+      } else {
+        const legacyDocs = await checkLegacyDemandsCount(user.uid);
+        state.hasLegacyDemands = legacyDocs.length > 0;
+      }
+    } catch (err) {
+      showToast('Erro ao inicializar seu espaço de trabalho.');
+      console.error(err);
+      return;
+    }
+
     state.unsubscribeDemandas = subscribeDemandas(
-      user.uid,
+      state.activeWsId,
       (demandas) => {
         state.demandas = demandas;
         state.loadedInitial = true;
