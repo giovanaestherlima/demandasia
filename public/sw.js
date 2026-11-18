@@ -2,7 +2,7 @@
 // Service Worker do Pauta — Cache estático para funcionamento offline da UI
 // ============================================================================
 
-const CACHE_NAME = 'pauta-shell-v6';
+const CACHE_NAME = 'pauta-shell-v7';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -46,7 +46,7 @@ self.addEventListener('fetch', (event) => {
 
   // Estratégia Network-First com fallback para cache (mantém app sempre atualizado)
   event.respondWith(
-    fetch(request)
+    fetch(request, { cache: 'no-cache' })
       .then((networkResponse) => {
         if (networkResponse && networkResponse.status === 200) {
           const clone = networkResponse.clone();
