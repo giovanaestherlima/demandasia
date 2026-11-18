@@ -1554,7 +1554,7 @@ function bindEvents() {
   });
 
   // Atalhos de teclado (?)
-  els.shortcutsBtn.addEventListener('click', () => els.shortcutsDialog.showModal());
+  els.shortcutsBtn?.addEventListener('click', () => els.shortcutsDialog.showModal());
   els.shortcutsCloseX.addEventListener('click', () => els.shortcutsDialog.close());
   els.shortcutsOkBtn.addEventListener('click', () => els.shortcutsDialog.close());
 

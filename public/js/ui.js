@@ -322,10 +322,35 @@ export function renderDemandsList(container, demandas, prefs, handlers, options 
     return;
   }
 
+  const closeAllMenus = () => {
+    container.querySelectorAll('.demand-menu-popover:not(.hidden)').forEach((el) => {
+      el.classList.add('hidden');
+      const btn = el.previousElementSibling;
+      if (btn) btn.setAttribute('aria-expanded', 'false');
+    });
+  };
+  if (!container.dataset.menuOutsideBound) {
+    container.dataset.menuOutsideBound = '1';
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.demand-menu-wrap')) {
+        document.querySelectorAll('.demand-menu-popover:not(.hidden)').forEach((el) => {
+          el.classList.add('hidden');
+          const btn = el.previousElementSibling;
+          if (btn) btn.setAttribute('aria-expanded', 'false');
+        });
+      }
+    });
+  }
+
   for (const d of demandas) {
     const isDone = d.status === 'concluida';
     const card = document.createElement('article');
     card.className = `demand-card ${isDone ? 'is-done' : ''}`.trim();
+    card.style.cursor = 'pointer';
+    card.addEventListener('click', (e) => {
+      if (e.target.closest('button, .demand-menu-wrap, a, input, select')) return;
+      handlers.onEdit(d);
+    });
 
     const top = document.createElement('div');
     top.className = 'demand-top';
@@ -347,7 +372,10 @@ export function renderDemandsList(container, demandas, prefs, handlers, options 
       checkBtn.style.cursor = 'default';
       checkBtn.title = 'Modo leitor: apenas visualização';
     } else {
-      checkBtn.addEventListener('click', () => handlers.onToggleDone(d));
+      checkBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        handlers.onToggleDone(d);
+      });
     }
 
     const titleEl = document.createElement('h3');
@@ -357,36 +385,71 @@ export function renderDemandsList(container, demandas, prefs, handlers, options 
     checkWrap.append(checkBtn, titleEl);
 
     const actions = document.createElement('div');
-    actions.className = 'demand-actions';
+    actions.className = 'demand-actions demand-menu-wrap';
+
+    const menuBtn = document.createElement('button');
+    menuBtn.type = 'button';
+    menuBtn.className = 'btn btn-ghost btn-sm demand-menu-btn';
+    menuBtn.setAttribute('aria-label', `Ações para ${d.titulo}`);
+    menuBtn.setAttribute('aria-haspopup', 'menu');
+    menuBtn.setAttribute('aria-expanded', 'false');
+    menuBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>';
+
+    const popover = document.createElement('div');
+    popover.className = 'demand-menu-popover hidden';
+    popover.setAttribute('role', 'menu');
+
+    menuBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const willOpen = popover.classList.contains('hidden');
+      closeAllMenus();
+      if (willOpen) {
+        popover.classList.remove('hidden');
+        menuBtn.setAttribute('aria-expanded', 'true');
+      }
+    });
 
     if (!readOnly && !isDone) {
       const snoozeBtn = document.createElement('button');
       snoozeBtn.type = 'button';
-      snoozeBtn.className = 'btn btn-ghost btn-sm';
+      snoozeBtn.className = 'demand-menu-item';
+      snoozeBtn.setAttribute('role', 'menuitem');
       snoozeBtn.textContent = 'Adiar';
-      snoozeBtn.setAttribute('aria-label', `Adiar alertas da demanda ${d.titulo}`);
-      snoozeBtn.addEventListener('click', () => handlers.onSnooze(d));
-      actions.appendChild(snoozeBtn);
+      snoozeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        closeAllMenus();
+        handlers.onSnooze(d);
+      });
+      popover.appendChild(snoozeBtn);
     }
 
     const editBtn = document.createElement('button');
     editBtn.type = 'button';
-    editBtn.className = 'btn btn-ghost btn-sm';
+    editBtn.className = 'demand-menu-item';
+    editBtn.setAttribute('role', 'menuitem');
     editBtn.textContent = readOnly ? 'Ver / Comentar' : 'Editar';
-    editBtn.setAttribute('aria-label', `${readOnly ? 'Visualizar e comentar demanda' : 'Editar demanda'} ${d.titulo}`);
-    editBtn.addEventListener('click', () => handlers.onEdit(d));
-    actions.appendChild(editBtn);
+    editBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeAllMenus();
+      handlers.onEdit(d);
+    });
+    popover.appendChild(editBtn);
 
     if (!readOnly) {
       const delBtn = document.createElement('button');
       delBtn.type = 'button';
-      delBtn.className = 'btn btn-ghost btn-sm';
+      delBtn.className = 'demand-menu-item is-danger';
+      delBtn.setAttribute('role', 'menuitem');
       delBtn.textContent = 'Excluir';
-      delBtn.setAttribute('aria-label', `Excluir demanda ${d.titulo}`);
-      delBtn.addEventListener('click', () => handlers.onDelete(d));
-      actions.appendChild(delBtn);
+      delBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        closeAllMenus();
+        handlers.onDelete(d);
+      });
+      popover.appendChild(delBtn);
     }
 
+    actions.append(menuBtn, popover);
     top.append(checkWrap, actions);
     card.appendChild(top);
 

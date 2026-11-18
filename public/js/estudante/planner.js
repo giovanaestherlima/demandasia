@@ -255,16 +255,15 @@ export function renderPlannerPreview(container, { demandas, disciplinas, grade, 
     container.appendChild(page);
   };
 
-  const addMonthlyPage = () => {
+  const addMonthlyPageFor = (year, month) => {
+    const refDate = new Date(year, month, 1);
     const page = document.createElement('div');
     page.className = 'planner-page';
-    const mesNome = hoje.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+    const mesNome = refDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
     escapeElText(page, 'h3', `Calendário Mensal — ${mesNome}`);
 
     const grid = document.createElement('div');
     grid.className = 'planner-month-grid';
-    const year = hoje.getFullYear();
-    const month = hoje.getMonth();
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const monthPrefix = `${year}-${String(month + 1).padStart(2, '0')}-`;
 
@@ -306,6 +305,21 @@ export function renderPlannerPreview(container, { demandas, disciplinas, grade, 
     container.appendChild(page);
   };
 
+  const addMonthlyPages = () => {
+    const currentKey = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`;
+    const monthKeys = new Set([currentKey]);
+    for (const d of filtradas) {
+      if (d.prazo && /^\d{4}-\d{2}-\d{2}$/.test(d.prazo)) {
+        monthKeys.add(d.prazo.slice(0, 7));
+      }
+    }
+    const sorted = Array.from(monthKeys).sort();
+    for (const key of sorted) {
+      const [yStr, mStr] = key.split('-');
+      addMonthlyPageFor(Number(yStr), Number(mStr) - 1);
+    }
+  };
+
   const addExamsPage = () => {
     const page = document.createElement('div');
     page.className = 'planner-page';
@@ -332,7 +346,7 @@ export function renderPlannerPreview(container, { demandas, disciplinas, grade, 
 
   if (opts.layout === 'pacote') {
     addCover();
-    addMonthlyPage();
+    addMonthlyPages();
     addWeeklyPage(hoje);
     const nextWeek = new Date(hoje);
     nextWeek.setDate(nextWeek.getDate() + 7);
@@ -340,7 +354,7 @@ export function renderPlannerPreview(container, { demandas, disciplinas, grade, 
   } else if (opts.layout === 'diario') {
     addDailyPage();
   } else if (opts.layout === 'mensal') {
-    addMonthlyPage();
+    addMonthlyPages();
   } else if (opts.layout === 'provas') {
     addExamsPage();
   } else {

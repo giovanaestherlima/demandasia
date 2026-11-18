@@ -477,16 +477,34 @@ function openDisciplinesDialog() {
         const faltasMax = d.faltasMax || 0;
         const faltas = d.faltasAtuais || 0;
         const perto = faltasMax > 0 && faltas >= faltasMax * 0.75;
+        const faltaWrap = createEl('div');
+        faltaWrap.style.cssText = 'display:inline-flex;align-items:center;gap:0.35rem;flex-wrap:wrap;';
         const faltaLbl = createEl('span', perto ? 'badge badge-critical' : 'badge', `Faltas: ${faltas}${faltasMax ? `/${faltasMax}` : ''}`);
-        const plusFalta = createEl('button', 'btn btn-ghost btn-sm', '+1 falta');
-        plusFalta.type = 'button';
-        plusFalta.addEventListener('click', async () => {
-          const novo = faltas + 1;
-          await updateDisciplina(wsId, d.id, { faltasAtuais: novo });
-          d.faltasAtuais = novo;
+        const inpFalta = createEl('input', 'input-control');
+        inpFalta.type = 'number';
+        inpFalta.min = '0';
+        inpFalta.max = '999';
+        inpFalta.value = String(faltas);
+        inpFalta.ariaLabel = `Quantidade de faltas em ${d.nome}`;
+        inpFalta.style.cssText = 'width:72px;padding:0.25rem 0.45rem;font-size:0.84rem;';
+        const saveFaltaBtn = createEl('button', 'btn btn-ghost btn-sm', 'Salvar faltas');
+        saveFaltaBtn.type = 'button';
+        const commitFalta = async () => {
+          const val = Math.max(0, Math.floor(Number(inpFalta.value) || 0));
+          if (val === d.faltasAtuais) return;
+          await updateDisciplina(wsId, d.id, { faltasAtuais: val });
+          d.faltasAtuais = val;
           renderContent();
+        };
+        saveFaltaBtn.addEventListener('click', commitFalta);
+        inpFalta.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            commitFalta();
+          }
         });
-        card.append(notaRow, addNotaBtn, faltaLbl, plusFalta);
+        faltaWrap.append(faltaLbl, inpFalta, saveFaltaBtn);
+        card.append(notaRow, addNotaBtn, faltaWrap);
       }
 
       const delBtn = createEl('button', 'btn btn-ghost btn-sm', 'Remover');
