@@ -1100,9 +1100,6 @@ function fillPreviewFields(d) {
 function replyCommand(msg) {
   els.commandReplyBox.textContent = msg;
   els.commandReplyBox.classList.remove('hidden');
-  if (!state.prefs.silenciarResumoFalado) {
-    speakText(msg);
-  }
 }
 
 function findMatchingDemands(alvo) {
