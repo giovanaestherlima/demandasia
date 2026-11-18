@@ -624,7 +624,7 @@ service cloud.firestore {
                            (
                              memberUid == request.auth.uid &&
                              request.resource.data.papel == 'admin' &&
-                             get(/databases/$(database)/documents/workspaces/$(wsId)).data.criadoPor == request.auth.uid
+                             getAfter(/databases/$(database)/documents/workspaces/$(wsId)).data.criadoPor == request.auth.uid
                            ) ||
                            isWsAdmin(wsId) ||
                            (
