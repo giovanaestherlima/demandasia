@@ -1149,6 +1149,13 @@ async function executeManagementCommand(intent) {
       const data = intent.novoPrazo || todayLocalISO();
       await snoozeDemanda(state.activeWsId, state.user.uid, alvoDemanda, data);
       replyCommand(`Demanda "${alvoDemanda.titulo}" adiada até ${formatDateBR(data)}.`);
+    } else if (intent.acao === 'alterar_prazo') {
+      const data = intent.novoPrazo || todayLocalISO();
+      await updateDemanda(state.activeWsId, state.user.uid, alvoDemanda.id, {
+        ...alvoDemanda,
+        prazo: data
+      }, 'editada', `prazo -> ${formatDateBR(data)}`);
+      replyCommand(`Prazo de "${alvoDemanda.titulo}" alterado para ${formatDateBR(data)}.`);
     } else if (intent.acao === 'alterar_prioridade' && intent.novaPrioridade) {
       await updateDemanda(state.activeWsId, state.user.uid, alvoDemanda.id, {
         ...alvoDemanda,

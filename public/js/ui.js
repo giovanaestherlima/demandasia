@@ -242,8 +242,9 @@ export function filterAndSortDemandas(demandas, { filter, search, sort, tag, ass
       const prioLabel = LABEL_PRIORIDADE[d.prioridade] || '';
       const datasTxt = buildSearchableDates(d);
       const respTxt = assignees.map((a) => a.nome || '').join(' ');
+      const reuniaoTxt = d.reuniaoTitulo ? `reuniao ${d.reuniaoTitulo}` : '';
       const alvo = normalizeSearchText(
-        `${d.titulo} ${d.descricao} ${d.categoria || ''} ${respTxt} ${d.prioridade || ''} ${prioLabel} ${tagsTxt} ${datasTxt}`
+        `${d.titulo} ${d.descricao} ${d.categoria || ''} ${respTxt} ${reuniaoTxt} ${d.prioridade || ''} ${prioLabel} ${tagsTxt} ${datasTxt}`
       );
       if (!alvo.includes(termo)) return false;
     }

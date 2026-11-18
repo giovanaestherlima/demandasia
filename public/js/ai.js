@@ -535,6 +535,15 @@ function interpretCommandLocally(texto) {
   if (mConcluir) {
     return { tipo: 'comando', acao: 'concluir', alvo: mConcluir[1].trim() };
   }
+  const mPrazo = lower.match(/^(?:(?:muda|mudar|altera|alterar|troca|trocar|define|definir|coloca|colocar)\s+(?:o\s+)?)?prazo\s+(?:da\s+demanda\s+|do\s+|da\s+|de\s+)?(.+?)\s+(?:para|pra)\s+(.+)$/i);
+  if (mPrazo) {
+    return {
+      tipo: 'comando',
+      acao: 'alterar_prazo',
+      alvo: mPrazo[1].trim(),
+      novoPrazo: inferDeadlineFallback(mPrazo[2]) || addDaysISO(1)
+    };
+  }
   const mAdiar = lower.match(/^(?:adia|adiar|empurra|joga)\s+(?:a\s+demanda\s+(?:do|da|de)?\s*)?(.+?)\s+(?:para|pra)\s+(.+)$/i);
   if (mAdiar) {
     return {
@@ -576,7 +585,7 @@ export async function interpretVoiceCommandWithAI(textoLivre, modoForcado = 'aut
         properties: {
           tipo: Schema.enumString({ enum: ['nova_demanda', 'comando'] }),
           acao: Schema.enumString({
-            enum: ['listar_pendentes', 'mais_antiga', 'vence_hoje', 'concluir', 'adiar', 'alterar_prioridade', 'excluir', 'nenhuma']
+            enum: ['listar_pendentes', 'mais_antiga', 'vence_hoje', 'concluir', 'adiar', 'alterar_prazo', 'alterar_prioridade', 'excluir', 'nenhuma']
           }),
           alvo: Schema.string({ nullable: true }),
           novaPrioridade: Schema.enumString({ enum: ['baixa', 'media', 'alta', 'urgente'], nullable: true }),
@@ -590,7 +599,16 @@ export async function interpretVoiceCommandWithAI(textoLivre, modoForcado = 'aut
   const dataISO = addDaysISO(0);
   const prompt = `Classifique a fala do usuário (pt-BR). Hoje: ${dataISO}. Modo: ${modoForcado}.
 Se modo="comando", sempre retorne tipo="comando".
-Se for pergunta ou ação sobre demandas existentes ("o que está pendente?", "qual a mais antiga?", "conclui X", "adia X para sexta", "muda prioridade de X para urgente", "exclui X"), retorne tipo="comando" e preencha acao/alvo/novaPrioridade/novoPrazo (YYYY-MM-DD).
+Se for pergunta ou ação sobre demandas existentes:
+- "o que está pendente?" -> acao="listar_pendentes"
+- "qual a mais antiga?" -> acao="mais_antiga"
+- "o que vence hoje?" -> acao="vence_hoje"
+- "conclui X" -> acao="concluir"
+- "adia X para sexta" / "soneca X" -> acao="adiar" (apenas soneca de alertas)
+- "mudar prazo de X para sexta" / "prazo de X para dia 20" -> acao="alterar_prazo" (altera a data de prazo da demanda)
+- "muda prioridade de X para urgente" -> acao="alterar_prioridade"
+- "exclui X" -> acao="excluir"
+Preencha alvo/novaPrioridade/novoPrazo (YYYY-MM-DD).
 Caso contrário, retorne tipo="nova_demanda" e acao="nenhuma".
 Fala: """${texto}"""`;
 
@@ -598,6 +616,9 @@ Fala: """${texto}"""`;
     const res = await cmdModel.generateContent(prompt);
     const parsed = JSON.parse(res.response.text());
     if (modoForcado === 'comando') parsed.tipo = 'comando';
+    if (parsed.acao === 'adiar' && /\bprazo\b/i.test(texto) && !/\b(adia|adiar|soneca)\b/i.test(texto)) {
+      parsed.acao = 'alterar_prazo';
+    }
     return parsed;
   } catch (err) {
     console.warn('[Pauta AI Command] Fallback local:', err);
