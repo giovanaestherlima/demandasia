@@ -45,11 +45,28 @@ import {
   suggestPriorityFromHistory
 } from './metrics.js?v=5';
 import {
-  ensureUserAndPersonalWorkspace,
+  acceptInviteAtomic,
+  addComment,
+  captureInviteUrlParam,
   checkLegacyDemandsCount,
-  migrateLegacyDemands,
+  clearInviteUrlParam,
+  createInvite,
+  createNewWorkspace,
   deleteLegacyDemands,
-  getQuotaStats
+  ensureUserAndPersonalWorkspace,
+  findPendingEmailInvites,
+  getInviteByToken,
+  getQuotaStats,
+  leaveWorkspace,
+  listWorkspaceInvites,
+  loadWorkspaceInfoAndMembers,
+  migrateLegacyDemands,
+  removeWorkspaceMember,
+  revokeInvite,
+  subscribeComments,
+  switchActiveWorkspace,
+  updateMemberRole,
+  updateMyLastVisit
 } from './workspaces.js?v=5';
 import {
   captureStudentUrlParam,
@@ -74,17 +91,26 @@ import {
 const state = {
   user: null,
   activeWsId: null,
+  activeWorkspace: null,
   meusEspacos: [],
+  workspaceMembers: [],
+  myRole: 'admin',
   hasLegacyDemands: false,
   demandas: [],
   loadedInitial: false,
   prefs: { ...DEFAULT_PREFERENCES },
   filter: 'pendentes',
   activeTag: null,
+  assigneeFilter: 'todos',
   search: '',
   sort: 'antigas',
   captureMode: 'auto', // 'auto' | 'demanda' | 'comando' | 'lote'
   unsubscribeDemandas: null,
+  unsubscribeComments: null,
+  hiddenTabTimer: null,
+  pendingInviteToken: captureInviteUrlParam(),
+  pendingInviteData: null,
+  currentInviteTab: 'link',
   spokenOnOpen: false,
   editingDemand: null,
   pendingDraft: null,
@@ -249,7 +275,60 @@ const els = {
   studentActivateSave: document.getElementById('student-activate-save'),
   stuMasterToggle: document.getElementById('stu-master-toggle'),
   stuModulesBox: document.getElementById('stu-modules-box'),
-  stuActivateError: document.getElementById('stu-activate-error')
+  stuActivateError: document.getElementById('stu-activate-error'),
+
+  // Colaboração (espaços, membros, convites, responsável, comentários)
+  captureCard: document.querySelector('.capture-card'),
+  workspaceSelect: document.getElementById('workspace-select'),
+  workspaceRoleBadge: document.getElementById('workspace-role-badge'),
+  wsMembersBtn: document.getElementById('ws-members-btn'),
+  wsNewBtn: document.getElementById('ws-new-btn'),
+  emailInvitesBanner: document.getElementById('email-invites-banner'),
+  assigneeFilterSelect: document.getElementById('assignee-filter-select'),
+
+  editResponsavelWrap: document.getElementById('edit-responsavel-wrap'),
+  editResponsavel: document.getElementById('edit-responsavel'),
+  previewSaveBtn: document.getElementById('preview-save-btn'),
+  commentsSection: document.getElementById('comments-section'),
+  commentsList: document.getElementById('comments-list'),
+  newCommentInput: document.getElementById('new-comment-input'),
+  addCommentBtn: document.getElementById('add-comment-btn'),
+
+  wsCreateDialog: document.getElementById('ws-create-dialog'),
+  wsCreateForm: document.getElementById('ws-create-form'),
+  wsCreateCloseX: document.getElementById('ws-create-close-x'),
+  wsCreateCancel: document.getElementById('ws-create-cancel'),
+  wsCreateName: document.getElementById('ws-create-name'),
+  wsCreateType: document.getElementById('ws-create-type'),
+
+  wsMembersDialog: document.getElementById('ws-members-dialog'),
+  wsMembersCloseX: document.getElementById('ws-members-close-x'),
+  wsMembersCloseBtn: document.getElementById('ws-members-close-btn'),
+  wsMembersMeta: document.getElementById('ws-members-meta'),
+  wsMembersList: document.getElementById('ws-members-list'),
+  wsInviteAdminSection: document.getElementById('ws-invite-admin-section'),
+  inviteTabPills: document.querySelectorAll('[data-invite-tab]'),
+  wsInviteRole: document.getElementById('ws-invite-role'),
+  wsInviteEmailWrap: document.getElementById('ws-invite-email-wrap'),
+  wsInviteEmail: document.getElementById('ws-invite-email'),
+  wsInviteUsesWrap: document.getElementById('ws-invite-uses-wrap'),
+  wsInviteUses: document.getElementById('ws-invite-uses'),
+  wsInviteGenerateBtn: document.getElementById('ws-invite-generate-btn'),
+  wsInviteResult: document.getElementById('ws-invite-result'),
+  wsInviteLinkInput: document.getElementById('ws-invite-link-input'),
+  wsInviteCopyBtn: document.getElementById('ws-invite-copy-btn'),
+  wsInviteShareBtn: document.getElementById('ws-invite-share-btn'),
+  wsInviteMailtoBtn: document.getElementById('ws-invite-mailto-btn'),
+  wsInvitesList: document.getElementById('ws-invites-list'),
+  wsLeaveBtn: document.getElementById('ws-leave-btn'),
+
+  inviteAcceptDialog: document.getElementById('invite-accept-dialog'),
+  inviteAcceptCloseX: document.getElementById('invite-accept-close-x'),
+  inviteAcceptDesc: document.getElementById('invite-accept-desc'),
+  inviteAcceptWarning: document.getElementById('invite-accept-warning'),
+  inviteSwitchAccountBtn: document.getElementById('invite-switch-account-btn'),
+  inviteLaterBtn: document.getElementById('invite-later-btn'),
+  inviteConfirmBtn: document.getElementById('invite-confirm-btn')
 };
 
 let studentUiMod = null;
@@ -314,6 +393,75 @@ let voiceRecognizer = null;
 // ----------------------------------------------------------------------------
 // Renderização geral
 // ----------------------------------------------------------------------------
+function isReadOnlyRole() {
+  return state.myRole === 'leitor';
+}
+
+function applyRoleUI() {
+  const roleLabels = { admin: 'Admin', editor: 'Editor', leitor: 'Leitor (só visualização)' };
+  if (els.workspaceRoleBadge) {
+    els.workspaceRoleBadge.textContent = roleLabels[state.myRole] || 'Membro';
+  }
+  if (els.captureCard) {
+    els.captureCard.classList.toggle('hidden', isReadOnlyRole());
+  }
+}
+
+function renderWorkspaceSelector() {
+  if (!els.workspaceSelect) return;
+  els.workspaceSelect.replaceChildren();
+  for (const esp of state.meusEspacos) {
+    const opt = document.createElement('option');
+    opt.value = esp.id;
+    opt.textContent = esp.nome || 'Espaço';
+    els.workspaceSelect.appendChild(opt);
+  }
+  if (state.activeWsId) {
+    els.workspaceSelect.value = state.activeWsId;
+  }
+}
+
+function populateMemberSelects() {
+  if (els.assigneeFilterSelect) {
+    const prev = state.assigneeFilter || 'todos';
+    els.assigneeFilterSelect.replaceChildren();
+    const baseOpts = [
+      { value: 'todos', label: 'Todos responsáveis' },
+      { value: 'minhas', label: 'Minhas demandas' },
+      { value: 'sem_responsavel', label: 'Sem responsável' }
+    ];
+    for (const o of baseOpts) {
+      const opt = document.createElement('option');
+      opt.value = o.value;
+      opt.textContent = o.label;
+      els.assigneeFilterSelect.appendChild(opt);
+    }
+    for (const m of state.workspaceMembers) {
+      const opt = document.createElement('option');
+      opt.value = m.uid;
+      opt.textContent = m.nome || m.email || 'Membro';
+      els.assigneeFilterSelect.appendChild(opt);
+    }
+    els.assigneeFilterSelect.value = prev;
+  }
+
+  if (els.editResponsavel) {
+    const prevVal = els.editResponsavel.value;
+    els.editResponsavel.replaceChildren();
+    const emptyOpt = document.createElement('option');
+    emptyOpt.value = '';
+    emptyOpt.textContent = 'Sem responsável';
+    els.editResponsavel.appendChild(emptyOpt);
+    for (const m of state.workspaceMembers) {
+      const opt = document.createElement('option');
+      opt.value = m.uid;
+      opt.textContent = `${m.nome || m.email}${m.uid === state.user?.uid ? ' (você)' : ''}`;
+      els.editResponsavel.appendChild(opt);
+    }
+    els.editResponsavel.value = prevVal;
+  }
+}
+
 function renderAll() {
   renderAttentionPanel(state.demandas, state.prefs);
   renderTagFilterChips(els.tagFilterRow, state.demandas, state.activeTag, (tag) => {
@@ -325,15 +473,23 @@ function renderAll() {
     filter: state.filter,
     search: state.search,
     sort: state.sort,
-    tag: state.activeTag
+    tag: state.activeTag,
+    assignee: state.assigneeFilter,
+    currentUid: state.user?.uid
   });
 
-  renderDemandsList(els.demandsList, visiveis, state.prefs, {
-    onToggleDone: handleToggleDone,
-    onEdit: openEditDialog,
-    onDelete: openDeleteDialog,
-    onSnooze: openSnoozeDialog
-  });
+  renderDemandsList(
+    els.demandsList,
+    visiveis,
+    state.prefs,
+    {
+      onToggleDone: handleToggleDone,
+      onEdit: openEditDialog,
+      onDelete: openDeleteDialog,
+      onSnooze: openSnoozeDialog
+    },
+    { readOnly: isReadOnlyRole() }
+  );
 }
 
 function updateMuteButtonUI() {
@@ -650,7 +806,66 @@ function openNextBatchItem() {
   if (!els.previewDialog.open) els.previewDialog.showModal();
 }
 
+function stopCommentsSubscription() {
+  if (state.unsubscribeComments) {
+    state.unsubscribeComments();
+    state.unsubscribeComments = null;
+  }
+}
+
+function renderCommentsList(comentarios) {
+  if (!els.commentsList) return;
+  els.commentsList.replaceChildren();
+  if (!comentarios || comentarios.length === 0) {
+    const empty = document.createElement('li');
+    empty.style.fontSize = '0.82rem';
+    empty.style.color = 'var(--text-muted)';
+    empty.textContent = 'Nenhum comentário ainda.';
+    els.commentsList.appendChild(empty);
+    return;
+  }
+  for (const c of comentarios) {
+    const li = document.createElement('li');
+    li.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:0.45rem 0.6rem;font-size:0.85rem;';
+    const head = document.createElement('div');
+    head.style.cssText = 'display:flex;justify-content:space-between;font-size:0.75rem;color:var(--text-muted);margin-bottom:0.2rem;';
+    const dt = c.criadoEm?.toDate ? c.criadoEm.toDate() : c.criadoEm ? new Date(c.criadoEm) : null;
+    const dtStr = dt ? dt.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : 'agora';
+    head.innerHTML = `<strong></strong><span></span>`;
+    head.querySelector('strong').textContent = c.autorNome || 'Membro';
+    head.querySelector('span').textContent = dtStr;
+    const body = document.createElement('div');
+    body.textContent = c.texto || '';
+    li.append(head, body);
+    els.commentsList.appendChild(li);
+  }
+}
+
+function setPreviewReadOnlyMode(readOnly) {
+  const fields = [
+    els.editTitulo,
+    els.editDescricao,
+    els.editPrioridade,
+    els.editPrazo,
+    els.editCategoria,
+    els.editStatus,
+    els.editEtiquetas,
+    els.editRecorrencia,
+    els.editDiaMes,
+    els.editResponsavel,
+    els.newSubtaskInput,
+    els.addSubtaskBtn
+  ];
+  for (const f of fields) {
+    if (f) f.disabled = readOnly;
+  }
+  if (els.previewSaveBtn) {
+    els.previewSaveBtn.classList.toggle('hidden', readOnly);
+  }
+}
+
 function openPreviewDialog(rascunho, localMs = 0) {
+  stopCommentsSubscription();
   state.editingDemand = null;
   state.pendingDraft = rascunho;
   state.batchQueue = [];
@@ -663,6 +878,8 @@ function openPreviewDialog(rascunho, localMs = 0) {
   els.previewTitle.textContent = 'Revisar demanda';
   els.previewDiscardBtn.textContent = 'Descartar';
   els.batchSaveAllBtn.classList.add('hidden');
+  els.commentsSection?.classList.add('hidden');
+  setPreviewReadOnlyMode(false);
 
   fillPreviewFields(rascunho);
   checkDuplicateAndHistoryHints();
@@ -672,6 +889,7 @@ function openPreviewDialog(rascunho, localMs = 0) {
 }
 
 function openEditDialog(demanda) {
+  stopCommentsSubscription();
   state.editingDemand = demanda;
   state.pendingDraft = null;
   state.batchQueue = [];
@@ -680,13 +898,22 @@ function openEditDialog(demanda) {
   state.editingSubtarefas = (demanda.subtarefas || []).map((s) => ({ ...s }));
   state.refineSessionId += 1;
 
-  els.previewTitle.textContent = 'Editar demanda';
-  els.previewDiscardBtn.textContent = 'Cancelar';
+  const readOnly = isReadOnlyRole();
+  els.previewTitle.textContent = readOnly ? 'Visualizar e comentar demanda' : 'Editar demanda';
+  els.previewDiscardBtn.textContent = readOnly ? 'Fechar' : 'Cancelar';
   els.batchSaveAllBtn.classList.add('hidden');
   setPreviewAiBar('hidden', '', false);
+  setPreviewReadOnlyMode(readOnly);
 
   fillPreviewFields(demanda);
   checkDuplicateAndHistoryHints();
+
+  if (els.commentsSection && state.activeWsId && demanda.id) {
+    els.commentsSection.classList.remove('hidden');
+    els.commentsList.replaceChildren();
+    state.unsubscribeComments = subscribeComments(state.activeWsId, demanda.id, renderCommentsList);
+  }
+
   els.previewDialog.showModal();
 }
 
@@ -698,6 +925,9 @@ function fillPreviewFields(d) {
   els.editCategoria.value = d.categoria || '';
   els.editStatus.value = d.status || 'pendente';
   els.editEtiquetas.value = (d.etiquetas || []).join(', ');
+  if (els.editResponsavel) {
+    els.editResponsavel.value = d.responsavelUid || '';
+  }
 
   const recTipo = d.recorrencia?.tipo || 'nenhuma';
   els.editRecorrencia.value = recTipo;
@@ -1056,6 +1286,40 @@ function bindEvents() {
     renderAll();
   });
 
+  els.assigneeFilterSelect?.addEventListener('change', (e) => {
+    state.assigneeFilter = e.target.value;
+    renderAll();
+  });
+
+  els.previewDialog.addEventListener('close', () => {
+    stopCommentsSubscription();
+    if (els.newCommentInput) els.newCommentInput.value = '';
+  });
+
+  const handleSendComment = async () => {
+    if (!state.user || !state.activeWsId || !state.editingDemand?.id) return;
+    const texto = els.newCommentInput.value.trim();
+    if (!texto) return;
+    els.addCommentBtn.disabled = true;
+    try {
+      await addComment(state.activeWsId, state.editingDemand.id, state.user, texto);
+      els.newCommentInput.value = '';
+    } catch (err) {
+      showToast('Erro ao enviar comentário.');
+      console.error(err);
+    } finally {
+      els.addCommentBtn.disabled = false;
+    }
+  };
+
+  els.addCommentBtn?.addEventListener('click', handleSendComment);
+  els.newCommentInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSendComment();
+    }
+  });
+
   // Campos sujos + duplicatas + recorrência + subtarefas
   [
     [els.editTitulo, 'titulo', 'input'],
@@ -1106,7 +1370,7 @@ function bindEvents() {
   });
 
   els.batchSaveAllBtn.addEventListener('click', async () => {
-    if (!state.user || !state.activeWsId || state.batchQueue.length === 0) return;
+    if (!state.user || !state.activeWsId || state.batchQueue.length === 0 || isReadOnlyRole()) return;
     try {
       for (const item of state.batchQueue) {
         await createDemanda(state.activeWsId, state.user, item);
@@ -1123,7 +1387,7 @@ function bindEvents() {
 
   els.previewForm.addEventListener('submit', async (e) => {
     e.preventDefault();
-    if (!state.user || !state.activeWsId) return;
+    if (!state.user || !state.activeWsId || isReadOnlyRole()) return;
 
     const etiquetas = els.editEtiquetas.value
       .split(',')
@@ -1139,6 +1403,9 @@ function bindEvents() {
             ...(recTipo === 'dia_mes' ? { diaMes: Number(els.editDiaMes.value) || 1 } : {})
           };
 
+    const respUid = els.editResponsavel?.value || null;
+    const respMember = respUid ? state.workspaceMembers.find((m) => m.uid === respUid) : null;
+
     const dados = {
       titulo: els.editTitulo.value.trim(),
       descricao: els.editDescricao.value.trim(),
@@ -1149,6 +1416,8 @@ function bindEvents() {
       etiquetas,
       recorrencia,
       subtarefas: state.editingSubtarefas,
+      responsavelUid: respUid,
+      responsavelNome: respMember ? respMember.nome || respMember.email : null,
       ...(modoEstudanteAtivo() && studentUiMod ? studentUiMod.readPreviewAcademicFields() : {})
     };
 
@@ -1460,6 +1729,510 @@ function init() {
     els.loginBtn.disabled = true;
   }
 
+  // --------------------------------------------------------------------------
+  // Colaboração: Espaços, Membros, Convites e Economia de Cota
+  // --------------------------------------------------------------------------
+  function startWorkspaceDemandsSubscription() {
+    if (state.unsubscribeDemandas) {
+      state.unsubscribeDemandas();
+      state.unsubscribeDemandas = null;
+    }
+    if (!state.activeWsId || !state.user) return;
+
+    state.unsubscribeDemandas = subscribeDemandas(
+      state.activeWsId,
+      (demandas) => {
+        state.demandas = demandas;
+        state.loadedInitial = true;
+        renderAll();
+
+        if (!state.spokenOnOpen) {
+          state.spokenOnOpen = true;
+          const hoje = todayLocalISO();
+          const jaViuBomDia = localStorage.getItem('pauta_bom_dia_date') === hoje;
+          if (!jaViuBomDia && demandas.some((d) => d.status !== 'concluida')) {
+            localStorage.setItem('pauta_bom_dia_date', hoje);
+            openMorningDialog(true);
+          } else if (!state.prefs.silenciarResumoFalado) {
+            const { text } = buildSummaryMessage(demandas);
+            speakText(text);
+          }
+        }
+      },
+      (err) => {
+        showToast('Erro ao sincronizar demandas com o Firestore.');
+        console.error(err);
+      }
+    );
+  }
+
+  async function activateWorkspaceContext(wsId, switchInDb = false) {
+    if (!state.user || !wsId) return;
+    if (switchInDb) {
+      await switchActiveWorkspace(state.user.uid, wsId);
+    }
+    state.activeWsId = wsId;
+    state.assigneeFilter = 'todos';
+    if (els.assigneeFilterSelect) els.assigneeFilterSelect.value = 'todos';
+
+    try {
+      const { workspace, membros } = await loadWorkspaceInfoAndMembers(wsId);
+      state.activeWorkspace = workspace;
+      state.workspaceMembers = membros;
+      const me = membros.find((m) => m.uid === state.user.uid);
+      const espIndex = state.meusEspacos.find((e) => e.id === wsId);
+      state.myRole = me?.papel || espIndex?.papel || 'admin';
+      updateMyLastVisit(wsId, state.user.uid).catch(() => {});
+    } catch (err) {
+      console.error('Erro ao carregar espaço e membros:', err);
+      state.workspaceMembers = [];
+      state.myRole = 'admin';
+    }
+
+    renderWorkspaceSelector();
+    populateMemberSelects();
+    applyRoleUI();
+    startWorkspaceDemandsSubscription();
+
+    if (modoEstudanteAtivo() && studentUiMod?.onWorkspaceChanged) {
+      studentUiMod.onWorkspaceChanged(wsId).catch(() => {});
+    }
+  }
+
+  async function renderActiveInvitesList() {
+    if (!els.wsInvitesList || !state.activeWsId || state.myRole !== 'admin') return;
+    els.wsInvitesList.replaceChildren();
+    try {
+      const convites = await listWorkspaceInvites(state.activeWsId);
+      if (convites.length === 0) {
+        const li = document.createElement('li');
+        li.style.fontSize = '0.8rem';
+        li.style.color = 'var(--text-muted)';
+        li.textContent = 'Nenhum convite ativo no momento.';
+        els.wsInvitesList.appendChild(li);
+        return;
+      }
+      for (const c of convites) {
+        const li = document.createElement('li');
+        li.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:0.5rem;padding:0.4rem 0.55rem;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.82rem;';
+        const info = document.createElement('span');
+        const tipoTxt = c.tipo === 'email' ? `E-mail (${c.emailAlvo})` : 'Link';
+        info.textContent = `${tipoTxt} • ${c.papel} • ${c.usos || 0}/${c.usosMax || 1} usos`;
+
+        const btns = document.createElement('div');
+        btns.style.display = 'flex';
+        btns.style.gap = '0.3rem';
+
+        const copyBtn = document.createElement('button');
+        copyBtn.type = 'button';
+        copyBtn.className = 'btn btn-ghost btn-sm';
+        copyBtn.textContent = 'Copiar';
+        copyBtn.addEventListener('click', async () => {
+          const url = `${location.origin}/?convite=${c.token}`;
+          await navigator.clipboard?.writeText(url).catch(() => {});
+          showToast('Link do convite copiado!');
+        });
+
+        const revBtn = document.createElement('button');
+        revBtn.type = 'button';
+        revBtn.className = 'btn btn-ghost btn-sm';
+        revBtn.textContent = 'Revogar';
+        revBtn.addEventListener('click', async () => {
+          await revokeInvite(c.token);
+          showToast('Convite revogado.');
+          renderActiveInvitesList();
+        });
+
+        btns.append(copyBtn, revBtn);
+        li.append(info, btns);
+        els.wsInvitesList.appendChild(li);
+      }
+    } catch (err) {
+      console.error('Erro ao listar convites:', err);
+    }
+  }
+
+  function renderMembersList() {
+    if (!els.wsMembersList) return;
+    els.wsMembersList.replaceChildren();
+    const isAdmin = state.myRole === 'admin';
+    const creatorUid = state.activeWorkspace?.criadoPor;
+
+    for (const m of state.workspaceMembers) {
+      const li = document.createElement('li');
+      li.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:0.5rem;flex-wrap:wrap;padding:0.45rem 0.6rem;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);';
+
+      const left = document.createElement('div');
+      left.style.cssText = 'display:flex;flex-direction:column;min-width:160px;';
+      const nomeEl = document.createElement('strong');
+      nomeEl.style.fontSize = '0.88rem';
+      nomeEl.textContent = `${m.nome || 'Sem nome'}${m.uid === state.user?.uid ? ' (você)' : ''}${m.uid === creatorUid ? ' • Criador' : ''}`;
+      const emailEl = document.createElement('span');
+      emailEl.style.cssText = 'font-size:0.76rem;color:var(--text-muted);';
+      emailEl.textContent = m.email || '';
+      left.append(nomeEl, emailEl);
+
+      const right = document.createElement('div');
+      right.style.cssText = 'display:flex;align-items:center;gap:0.35rem;';
+
+      if (isAdmin && m.uid !== creatorUid) {
+        const sel = document.createElement('select');
+        sel.className = 'select-control';
+        sel.style.cssText = 'padding:0.25rem 0.45rem;font-size:0.8rem;';
+        for (const [val, lbl] of [['admin', 'Admin'], ['editor', 'Editor'], ['leitor', 'Leitor']]) {
+          const o = document.createElement('option');
+          o.value = val;
+          o.textContent = lbl;
+          sel.appendChild(o);
+        }
+        sel.value = m.papel || 'editor';
+        sel.addEventListener('change', async () => {
+          try {
+            await updateMemberRole(state.activeWsId, m.uid, sel.value);
+            m.papel = sel.value;
+            populateMemberSelects();
+            showToast('Permissão atualizada.');
+          } catch (err) {
+            sel.value = m.papel;
+            showToast('Não foi possível alterar a permissão.');
+            console.error(err);
+          }
+        });
+        right.appendChild(sel);
+
+        if (m.uid !== state.user?.uid) {
+          const remBtn = document.createElement('button');
+          remBtn.type = 'button';
+          remBtn.className = 'btn btn-ghost btn-sm';
+          remBtn.textContent = 'Remover';
+          remBtn.addEventListener('click', async () => {
+            try {
+              await removeWorkspaceMember(state.activeWsId, m.uid);
+              state.workspaceMembers = state.workspaceMembers.filter((x) => x.uid !== m.uid);
+              renderMembersList();
+              populateMemberSelects();
+              showToast('Membro removido.');
+            } catch (err) {
+              showToast('Erro ao remover membro.');
+              console.error(err);
+            }
+          });
+          right.appendChild(remBtn);
+        }
+      } else {
+        const badge = document.createElement('span');
+        badge.className = 'badge badge-tag';
+        badge.textContent = m.papel === 'admin' ? 'Admin' : m.papel === 'leitor' ? 'Leitor' : 'Editor';
+        right.appendChild(badge);
+      }
+
+      li.append(left, right);
+      els.wsMembersList.appendChild(li);
+    }
+  }
+
+  async function openMembersDialog() {
+    if (!state.activeWsId || !state.user) return;
+    try {
+      const { workspace, membros } = await loadWorkspaceInfoAndMembers(state.activeWsId);
+      state.activeWorkspace = workspace;
+      state.workspaceMembers = membros;
+      const me = membros.find((m) => m.uid === state.user.uid);
+      state.myRole = me?.papel || state.myRole || 'admin';
+      applyRoleUI();
+    } catch (err) {
+      console.error(err);
+    }
+
+    const wsName = state.activeWorkspace?.nome || 'Espaço';
+    const isAdmin = state.myRole === 'admin';
+    const isCreator = state.activeWorkspace?.criadoPor === state.user.uid;
+
+    els.wsMembersMeta.textContent = `${wsName} • Seu papel: ${state.myRole}`;
+    els.wsInviteAdminSection.classList.toggle('hidden', !isAdmin);
+    els.wsLeaveBtn.classList.toggle('hidden', isCreator);
+    els.wsInviteResult.classList.add('hidden');
+
+    renderMembersList();
+    if (isAdmin) {
+      renderActiveInvitesList();
+    }
+    els.wsMembersDialog.showModal();
+  }
+
+  async function handlePendingInviteToken(token) {
+    if (!token || !state.user) return;
+    try {
+      const inv = await getInviteByToken(token);
+      if (!inv) {
+        showToast('Convite inválido ou não encontrado.');
+        clearInviteUrlParam();
+        state.pendingInviteToken = null;
+        return;
+      }
+      const exp = inv.expiraEm?.toDate ? inv.expiraEm.toDate() : new Date(inv.expiraEm);
+      if (!inv.ativo || exp <= new Date() || (inv.usos || 0) >= (inv.usosMax || 1)) {
+        showToast('Este convite expirou ou já atingiu o limite de usos.');
+        clearInviteUrlParam();
+        state.pendingInviteToken = null;
+        return;
+      }
+
+      state.pendingInviteData = inv;
+      const roleDesc = inv.papel === 'leitor' ? 'Leitor (apenas visualizar e comentar)' : 'Editor (criar, editar, concluir e comentar)';
+      els.inviteAcceptDesc.textContent = `${inv.criadoPorNome || 'Alguém'} convidou você para o espaço "${inv.wsNome}" como ${roleDesc}.`;
+
+      const userEmail = (state.user.email || '').toLowerCase();
+      const emailMismatch = inv.tipo === 'email' && inv.emailAlvo && userEmail !== inv.emailAlvo;
+      if (emailMismatch) {
+        els.inviteAcceptWarning.textContent = `Este convite foi enviado para ${inv.emailAlvo}, mas você está logado como ${state.user.email}. Troque de conta para aceitar.`;
+        els.inviteAcceptWarning.classList.remove('hidden');
+        els.inviteSwitchAccountBtn.classList.remove('hidden');
+        els.inviteConfirmBtn.classList.add('hidden');
+      } else {
+        els.inviteAcceptWarning.classList.add('hidden');
+        els.inviteSwitchAccountBtn.classList.add('hidden');
+        els.inviteConfirmBtn.classList.remove('hidden');
+      }
+      els.inviteAcceptDialog.showModal();
+    } catch (err) {
+      console.error('Erro ao verificar convite:', err);
+      showToast('Não foi possível abrir o convite.');
+    }
+  }
+
+  async function checkPendingEmailInvites() {
+    if (!state.user?.email || !els.emailInvitesBanner) return;
+    if (sessionStorage.getItem('pauta_email_invites_checked') === '1') return;
+    sessionStorage.setItem('pauta_email_invites_checked', '1');
+
+    try {
+      const invites = await findPendingEmailInvites(state.user.email);
+      const myIds = new Set(state.meusEspacos.map((e) => e.id));
+      const pendentes = invites.filter((inv) => !myIds.has(inv.wsId));
+      if (pendentes.length === 0) {
+        els.emailInvitesBanner.classList.add('hidden');
+        return;
+      }
+
+      const first = pendentes[0];
+      els.emailInvitesBanner.replaceChildren();
+      const msg = document.createElement('span');
+      msg.textContent = `Você foi convidado para "${first.wsNome}" (${first.papel}) por ${first.criadoPorNome || 'um colega'}.`;
+      const actions = document.createElement('div');
+      actions.style.cssText = 'display:flex;gap:0.35rem;flex-wrap:wrap;';
+
+      const acceptBtn = document.createElement('button');
+      acceptBtn.type = 'button';
+      acceptBtn.className = 'btn btn-primary btn-sm';
+      acceptBtn.textContent = 'Entrar no espaço';
+      acceptBtn.addEventListener('click', async () => {
+        try {
+          await acceptInviteAtomic(state.user, first);
+          state.meusEspacos.push({ id: first.wsId, nome: first.wsNome, papel: first.papel });
+          els.emailInvitesBanner.classList.add('hidden');
+          await activateWorkspaceContext(first.wsId, true);
+          showToast(`Você entrou em "${first.wsNome}"!`);
+        } catch (err) {
+          showToast('Não foi possível aceitar o convite.');
+          console.error(err);
+        }
+      });
+
+      const dismissBtn = document.createElement('button');
+      dismissBtn.type = 'button';
+      dismissBtn.className = 'btn btn-ghost btn-sm';
+      dismissBtn.textContent = 'Depois';
+      dismissBtn.addEventListener('click', () => els.emailInvitesBanner.classList.add('hidden'));
+
+      actions.append(acceptBtn, dismissBtn);
+      els.emailInvitesBanner.append(msg, actions);
+      els.emailInvitesBanner.classList.remove('hidden');
+    } catch (err) {
+      console.error('Erro ao buscar convites por e-mail:', err);
+    }
+  }
+
+  // Listeners dos controles de colaboração
+  els.workspaceSelect?.addEventListener('change', async (e) => {
+    const newWsId = e.target.value;
+    if (!newWsId || newWsId === state.activeWsId) return;
+    await activateWorkspaceContext(newWsId, true);
+    showToast('Espaço alterado.');
+  });
+
+  els.wsNewBtn?.addEventListener('click', () => {
+    els.wsCreateName.value = '';
+    els.wsCreateType.value = 'equipe';
+    els.wsCreateDialog.showModal();
+  });
+  els.wsCreateCloseX?.addEventListener('click', () => els.wsCreateDialog.close());
+  els.wsCreateCancel?.addEventListener('click', () => els.wsCreateDialog.close());
+
+  els.wsCreateForm?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!state.user) return;
+    const nome = els.wsCreateName.value.trim();
+    if (!nome) return;
+    try {
+      const created = await createNewWorkspace(state.user, nome, els.wsCreateType.value);
+      state.meusEspacos.push(created);
+      els.wsCreateDialog.close();
+      await activateWorkspaceContext(created.id, true);
+      showToast(`Espaço "${created.nome}" criado!`);
+    } catch (err) {
+      showToast('Erro ao criar espaço.');
+      console.error(err);
+    }
+  });
+
+  els.wsMembersBtn?.addEventListener('click', openMembersDialog);
+  els.wsMembersCloseX?.addEventListener('click', () => els.wsMembersDialog.close());
+  els.wsMembersCloseBtn?.addEventListener('click', () => els.wsMembersDialog.close());
+
+  els.inviteTabPills?.forEach((pill) => {
+    pill.addEventListener('click', () => {
+      state.currentInviteTab = pill.dataset.inviteTab;
+      els.inviteTabPills.forEach((p) => p.setAttribute('aria-pressed', String(p === pill)));
+      const isEmail = state.currentInviteTab === 'email';
+      els.wsInviteEmailWrap.classList.toggle('hidden', !isEmail);
+      els.wsInviteUsesWrap.classList.toggle('hidden', isEmail);
+      els.wsInviteResult.classList.add('hidden');
+    });
+  });
+
+  els.wsInviteGenerateBtn?.addEventListener('click', async () => {
+    if (!state.user || !state.activeWsId || state.myRole !== 'admin') return;
+    const tipo = state.currentInviteTab || 'link';
+    const papel = els.wsInviteRole.value;
+    const emailAlvo = els.wsInviteEmail.value.trim();
+    const usosMax = tipo === 'email' ? 1 : Number(els.wsInviteUses.value) || 1;
+
+    if (tipo === 'email' && !emailAlvo.includes('@')) {
+      showToast('Informe um e-mail válido.');
+      return;
+    }
+
+    try {
+      const inv = await createInvite({
+        wsId: state.activeWsId,
+        wsNome: state.activeWorkspace?.nome || 'Espaço',
+        papel,
+        tipo,
+        emailAlvo,
+        validadeDias: 7,
+        usosMax,
+        user: state.user
+      });
+      const url = `${location.origin}/?convite=${inv.token}`;
+      els.wsInviteLinkInput.value = url;
+      els.wsInviteResult.classList.remove('hidden');
+      els.wsInviteShareBtn.classList.toggle('hidden', !navigator.share);
+
+      if (tipo === 'email') {
+        const subject = encodeURIComponent(`Convite para o espaço "${state.activeWorkspace?.nome || 'Pauta'}" no Pauta`);
+        const body = encodeURIComponent(
+          `Olá! Convidei você para colaborar no espaço "${state.activeWorkspace?.nome || 'Pauta'}" como ${papel}.\n\nAcesse pelo link: ${url}`
+        );
+        els.wsInviteMailtoBtn.href = `mailto:${encodeURIComponent(emailAlvo)}?subject=${subject}&body=${body}`;
+        els.wsInviteMailtoBtn.classList.remove('hidden');
+      } else {
+        els.wsInviteMailtoBtn.classList.add('hidden');
+      }
+
+      renderActiveInvitesList();
+      showToast('Convite criado!');
+    } catch (err) {
+      showToast('Erro ao gerar convite.');
+      console.error(err);
+    }
+  });
+
+  els.wsInviteCopyBtn?.addEventListener('click', async () => {
+    if (!els.wsInviteLinkInput.value) return;
+    await navigator.clipboard?.writeText(els.wsInviteLinkInput.value).catch(() => {});
+    showToast('Link copiado!');
+  });
+
+  els.wsInviteShareBtn?.addEventListener('click', async () => {
+    if (!navigator.share || !els.wsInviteLinkInput.value) return;
+    try {
+      await navigator.share({
+        title: `Convite Pauta — ${state.activeWorkspace?.nome || 'Espaço'}`,
+        text: 'Entre neste espaço compartilhado no Pauta:',
+        url: els.wsInviteLinkInput.value
+      });
+    } catch {}
+  });
+
+  els.wsLeaveBtn?.addEventListener('click', async () => {
+    if (!state.user || !state.activeWsId) return;
+    try {
+      await leaveWorkspace(state.activeWsId, state.user.uid);
+      state.meusEspacos = state.meusEspacos.filter((e) => e.id !== state.activeWsId);
+      els.wsMembersDialog.close();
+      const nextWs = state.meusEspacos[0]?.id;
+      if (nextWs) {
+        await activateWorkspaceContext(nextWs, true);
+      }
+      showToast('Você saiu do espaço.');
+    } catch (err) {
+      showToast('Erro ao sair do espaço.');
+      console.error(err);
+    }
+  });
+
+  els.inviteAcceptCloseX?.addEventListener('click', () => els.inviteAcceptDialog.close());
+  els.inviteLaterBtn?.addEventListener('click', () => {
+    clearInviteUrlParam();
+    state.pendingInviteToken = null;
+    els.inviteAcceptDialog.close();
+  });
+  els.inviteSwitchAccountBtn?.addEventListener('click', async () => {
+    els.inviteAcceptDialog.close();
+    await logout();
+  });
+  els.inviteConfirmBtn?.addEventListener('click', async () => {
+    const inv = state.pendingInviteData;
+    if (!inv || !state.user) return;
+    try {
+      await acceptInviteAtomic(state.user, inv);
+      if (!state.meusEspacos.some((e) => e.id === inv.wsId)) {
+        state.meusEspacos.push({ id: inv.wsId, nome: inv.wsNome, papel: inv.papel });
+      }
+      clearInviteUrlParam();
+      state.pendingInviteToken = null;
+      state.pendingInviteData = null;
+      els.inviteAcceptDialog.close();
+      await activateWorkspaceContext(inv.wsId, true);
+      showToast(`Você entrou no espaço "${inv.wsNome}"!`);
+    } catch (err) {
+      showToast('Não foi possível aceitar o convite.');
+      console.error(err);
+    }
+  });
+
+  // Economia de cota Spark: pausa listener após 5 min com aba oculta e retoma ao voltar
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      if (state.hiddenTabTimer) clearTimeout(state.hiddenTabTimer);
+      state.hiddenTabTimer = setTimeout(() => {
+        if (state.unsubscribeDemandas) {
+          state.unsubscribeDemandas();
+          state.unsubscribeDemandas = null;
+        }
+      }, 5 * 60 * 1000);
+    } else {
+      if (state.hiddenTabTimer) {
+        clearTimeout(state.hiddenTabTimer);
+        state.hiddenTabTimer = null;
+      }
+      if (state.user && state.activeWsId && !state.unsubscribeDemandas) {
+        startWorkspaceDemandsSubscription();
+      }
+    }
+  });
+
   // Captura ?estudante=1 antes do login para retomar após autenticar
   const pendingStudentLink = captureStudentUrlParam();
 
@@ -1478,7 +2251,9 @@ function init() {
 
     if (!user) {
       state.activeWsId = null;
+      state.activeWorkspace = null;
       state.meusEspacos = [];
+      state.workspaceMembers = [];
       state.demandas = [];
       state.loadedInitial = false;
       state.spokenOnOpen = false;
@@ -1579,31 +2354,13 @@ function init() {
       return;
     }
 
-    state.unsubscribeDemandas = subscribeDemandas(
-      state.activeWsId,
-      (demandas) => {
-        state.demandas = demandas;
-        state.loadedInitial = true;
-        renderAll();
+    await activateWorkspaceContext(state.activeWsId, false);
 
-        if (!state.spokenOnOpen) {
-          state.spokenOnOpen = true;
-          const hoje = todayLocalISO();
-          const jaViuBomDia = localStorage.getItem('pauta_bom_dia_date') === hoje;
-          if (!jaViuBomDia && demandas.some((d) => d.status !== 'concluida')) {
-            localStorage.setItem('pauta_bom_dia_date', hoje);
-            openMorningDialog(true);
-          } else if (!state.prefs.silenciarResumoFalado) {
-            const { text } = buildSummaryMessage(demandas);
-            speakText(text);
-          }
-        }
-      },
-      (err) => {
-        showToast('Erro ao sincronizar demandas com o Firestore.');
-        console.error(err);
-      }
-    );
+    if (state.pendingInviteToken) {
+      await handlePendingInviteToken(state.pendingInviteToken);
+    } else {
+      await checkPendingEmailInvites();
+    }
   });
 }
 

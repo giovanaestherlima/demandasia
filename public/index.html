@@ -103,6 +103,22 @@
 
     <!-- Aplicação Principal -->
     <main id="app-view" class="hidden" style="display:flex;flex-direction:column;gap:1.25rem;">
+      <!-- Barra de Espaços de Trabalho e Colaboração -->
+      <section id="workspace-bar" class="workspace-bar" aria-label="Espaço de trabalho ativo" style="display:flex;flex-wrap:wrap;align-items:center;gap:0.5rem;justify-content:space-between;background:var(--surface-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:0.55rem 0.75rem;">
+        <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;flex:1;min-width:200px;">
+          <label for="workspace-select" class="sr-only">Selecionar espaço de trabalho</label>
+          <select id="workspace-select" class="select-control" style="max-width:260px;font-weight:600;"></select>
+          <span id="workspace-role-badge" class="badge badge-tag" style="font-size:0.75rem;"></span>
+        </div>
+        <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;">
+          <button id="ws-members-btn" type="button" class="btn btn-secondary btn-sm">Membros / Convidar</button>
+          <button id="ws-new-btn" type="button" class="btn btn-ghost btn-sm">+ Espaço</button>
+        </div>
+      </section>
+
+      <!-- Banner de convites por e-mail pendentes -->
+      <div id="email-invites-banner" class="install-banner hidden" role="region" aria-label="Convites pendentes para espaços"></div>
+
       <!-- Painel Atenção retrátil (botão laranjinha compacto) -->
       <section aria-labelledby="attention-toggle-btn">
         <button id="attention-toggle-btn" type="button" class="attention-toggle-pill" aria-expanded="false" aria-controls="attention-panel">
@@ -189,6 +205,12 @@
         <div class="search-sort-row">
           <label for="search-input" class="sr-only">Buscar demandas</label>
           <input id="search-input" type="search" class="input-control" placeholder="Buscar por título, prioridade, data (ex: 18/11) ou #etiqueta...">
+          <label for="assignee-filter-select" class="sr-only">Filtrar por responsável</label>
+          <select id="assignee-filter-select" class="select-control" style="max-width:190px;">
+            <option value="todos">Todos responsáveis</option>
+            <option value="minhas">Minhas demandas</option>
+            <option value="sem_responsavel">Sem responsável</option>
+          </select>
           <label for="sort-select" class="sr-only">Ordenar demandas</label>
           <select id="sort-select" class="select-control">
             <option value="antigas">Mais antigas primeiro</option>
@@ -281,6 +303,12 @@
           <label for="edit-dia-mes">Dia do mês (1 a 31)</label>
           <input id="edit-dia-mes" type="number" min="1" max="31" value="1" class="input-control">
         </div>
+        <div id="edit-responsavel-wrap" class="form-field">
+          <label for="edit-responsavel">Responsável</label>
+          <select id="edit-responsavel" class="select-control">
+            <option value="">Sem responsável</option>
+          </select>
+        </div>
 
         <!-- Subtarefas / Checklist -->
         <div class="form-field">
@@ -291,6 +319,17 @@
           </div>
           <div id="subtasks-editor" class="subtasks-editor"></div>
         </div>
+
+        <!-- Comentários da demanda (sob demanda, apenas na edição) -->
+        <section id="comments-section" class="hidden" aria-label="Comentários" style="border-top:1px solid var(--border);padding-top:0.75rem;margin-top:0.25rem;">
+          <h3 style="font-size:0.9rem;margin:0 0 0.5rem;">Comentários</h3>
+          <ul id="comments-list" style="list-style:none;padding:0;margin:0 0 0.55rem;display:flex;flex-direction:column;gap:0.4rem;max-height:180px;overflow-y:auto;"></ul>
+          <div style="display:flex;gap:0.4rem;">
+            <label for="new-comment-input" class="sr-only">Escrever comentário</label>
+            <input id="new-comment-input" type="text" class="input-control" maxlength="2000" placeholder="Escrever comentário...">
+            <button type="button" id="add-comment-btn" class="btn btn-secondary btn-sm">Enviar</button>
+          </div>
+        </section>
 
         <!-- Histórico da demanda (visível na edição) -->
         <details id="history-details" class="hidden">
@@ -551,9 +590,120 @@
     </div>
   </dialog>
 
+  <!-- Diálogo Criar Novo Espaço -->
+  <dialog id="ws-create-dialog" aria-labelledby="ws-create-title">
+    <div class="dialog-header">
+      <h2 id="ws-create-title">Novo espaço de trabalho</h2>
+      <button type="button" id="ws-create-close-x" class="btn btn-ghost btn-sm" aria-label="Fechar">✕</button>
+    </div>
+    <form id="ws-create-form" method="dialog">
+      <div class="dialog-body">
+        <div class="form-field">
+          <label for="ws-create-name">Nome do espaço</label>
+          <input id="ws-create-name" type="text" class="input-control" maxlength="80" placeholder="Ex: Equipe Financeiro, Família, Projeto X" required>
+        </div>
+        <div class="form-field">
+          <label for="ws-create-type">Tipo</label>
+          <select id="ws-create-type" class="select-control">
+            <option value="equipe">Equipe / Compartilhado</option>
+            <option value="pessoal">Pessoal</option>
+          </select>
+        </div>
+      </div>
+      <div class="dialog-footer">
+        <button type="button" id="ws-create-cancel" class="btn btn-secondary">Cancelar</button>
+        <button type="submit" id="ws-create-submit" class="btn btn-primary">Criar espaço</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Diálogo Membros e Convites do Espaço -->
+  <dialog id="ws-members-dialog" aria-labelledby="ws-members-title">
+    <div class="dialog-header">
+      <h2 id="ws-members-title">Membros e convites</h2>
+      <button type="button" id="ws-members-close-x" class="btn btn-ghost btn-sm" aria-label="Fechar">✕</button>
+    </div>
+    <div class="dialog-body">
+      <div id="ws-members-meta" class="info-note" style="margin:0;"></div>
+
+      <div>
+        <h3 style="font-size:0.95rem;margin:0 0 0.5rem;">Participantes</h3>
+        <ul id="ws-members-list" style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:0.45rem;"></ul>
+      </div>
+
+      <section id="ws-invite-admin-section" class="hidden" style="border-top:1px solid var(--border);padding-top:0.85rem;">
+        <h3 style="font-size:0.95rem;margin:0 0 0.5rem;">Convidar colaborador</h3>
+        <div class="capture-modes" role="group" aria-label="Tipo de convite" style="margin-bottom:0.6rem;">
+          <button type="button" class="mode-pill" data-invite-tab="link" aria-pressed="true">Por link</button>
+          <button type="button" class="mode-pill" data-invite-tab="email" aria-pressed="false">Por e-mail</button>
+        </div>
+
+        <div class="form-grid-2">
+          <div class="form-field">
+            <label for="ws-invite-role">Permissão</label>
+            <select id="ws-invite-role" class="select-control">
+              <option value="editor">Editor (cria, edita, conclui e comenta)</option>
+              <option value="leitor">Leitor (só visualiza e comenta)</option>
+            </select>
+          </div>
+          <div id="ws-invite-email-wrap" class="form-field hidden">
+            <label for="ws-invite-email">E-mail do convidado (Google)</label>
+            <input id="ws-invite-email" type="email" class="input-control" placeholder="colega@gmail.com">
+          </div>
+          <div id="ws-invite-uses-wrap" class="form-field">
+            <label for="ws-invite-uses">Limite de usos</label>
+            <select id="ws-invite-uses" class="select-control">
+              <option value="1">1 pessoa</option>
+              <option value="5">Até 5 pessoas</option>
+              <option value="20">Até 20 pessoas</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem;">
+          <button type="button" id="ws-invite-generate-btn" class="btn btn-primary btn-sm">Gerar convite</button>
+        </div>
+
+        <div id="ws-invite-result" class="ai-status-bar hidden" style="margin-top:0.6rem;flex-wrap:wrap;gap:0.4rem;">
+          <input id="ws-invite-link-input" type="text" class="input-control" readonly style="flex:1;min-width:180px;font-size:0.82rem;">
+          <button type="button" id="ws-invite-copy-btn" class="btn btn-secondary btn-sm">Copiar</button>
+          <button type="button" id="ws-invite-share-btn" class="btn btn-secondary btn-sm hidden">Compartilhar</button>
+          <a id="ws-invite-mailto-btn" class="btn btn-primary btn-sm hidden" href="#">Abrir e-mail</a>
+        </div>
+
+        <div style="margin-top:0.85rem;">
+          <h4 style="font-size:0.85rem;color:var(--text-muted);margin:0 0 0.4rem;">Convites ativos</h4>
+          <ul id="ws-invites-list" style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:0.35rem;"></ul>
+        </div>
+      </section>
+    </div>
+    <div class="dialog-footer" style="justify-content:space-between;">
+      <button type="button" id="ws-leave-btn" class="btn btn-danger btn-sm hidden">Sair deste espaço</button>
+      <button type="button" id="ws-members-close-btn" class="btn btn-primary">Fechar</button>
+    </div>
+  </dialog>
+
+  <!-- Diálogo Aceitar Convite (?convite=TOKEN) -->
+  <dialog id="invite-accept-dialog" aria-labelledby="invite-accept-title">
+    <div class="dialog-header">
+      <h2 id="invite-accept-title">Convite para espaço compartilhado</h2>
+      <button type="button" id="invite-accept-close-x" class="btn btn-ghost btn-sm" aria-label="Fechar">✕</button>
+    </div>
+    <div class="dialog-body">
+      <p id="invite-accept-desc"></p>
+      <p class="info-note">Ao entrar, os membros deste espaço verão seu nome e e-mail.</p>
+      <p id="invite-accept-warning" class="ai-status-bar is-warn hidden"></p>
+    </div>
+    <div class="dialog-footer" style="flex-wrap:wrap;">
+      <button type="button" id="invite-switch-account-btn" class="btn btn-secondary hidden">Trocar de conta</button>
+      <button type="button" id="invite-later-btn" class="btn btn-ghost">Agora não</button>
+      <button type="button" id="invite-confirm-btn" class="btn btn-primary">Entrar no espaço</button>
+    </div>
+  </dialog>
+
   <!-- Notificações in-app (toasts) -->
   <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
 
-  <script type="module" src="./js/app.js?v=5"></script>
+  <script type="module" src="./js/app.js?v=6"></script>
 </body>
 </html>

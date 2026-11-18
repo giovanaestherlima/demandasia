@@ -200,7 +200,7 @@ function buildSearchableDates(d) {
   return partes.join(' ');
 }
 
-export function filterAndSortDemandas(demandas, { filter, search, sort, tag }) {
+export function filterAndSortDemandas(demandas, { filter, search, sort, tag, assignee, currentUid }) {
   const termo = normalizeSearchText(String(search || '').trim());
   const hoje = todayLocalISO();
   const fimSemana = endOfWeekISO();
@@ -216,12 +216,22 @@ export function filterAndSortDemandas(demandas, { filter, search, sort, tag }) {
 
     if (tag && !(d.etiquetas || []).includes(tag)) return false;
 
+    if (assignee && assignee !== 'todos') {
+      if (assignee === 'minhas') {
+        if (!currentUid || d.responsavelUid !== currentUid) return false;
+      } else if (assignee === 'sem_responsavel') {
+        if (d.responsavelUid) return false;
+      } else if (d.responsavelUid !== assignee) {
+        return false;
+      }
+    }
+
     if (termo) {
       const tagsTxt = (d.etiquetas || []).join(' ');
       const prioLabel = LABEL_PRIORIDADE[d.prioridade] || '';
       const datasTxt = buildSearchableDates(d);
       const alvo = normalizeSearchText(
-        `${d.titulo} ${d.descricao} ${d.categoria || ''} ${d.prioridade || ''} ${prioLabel} ${tagsTxt} ${datasTxt}`
+        `${d.titulo} ${d.descricao} ${d.categoria || ''} ${d.responsavelNome || ''} ${d.prioridade || ''} ${prioLabel} ${tagsTxt} ${datasTxt}`
       );
       if (!alvo.includes(termo)) return false;
     }
@@ -281,8 +291,9 @@ export function renderTagFilterChips(container, demandas, activeTag, onSelectTag
   }
 }
 
-export function renderDemandsList(container, demandas, prefs, handlers) {
+export function renderDemandsList(container, demandas, prefs, handlers, options = {}) {
   container.replaceChildren();
+  const readOnly = Boolean(options.readOnly ?? handlers?.readOnly);
 
   if (demandas.length === 0) {
     const empty = document.createElement('div');
@@ -318,7 +329,14 @@ export function renderDemandsList(container, demandas, prefs, handlers) {
     checkBtn.innerHTML = isDone
       ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>'
       : '';
-    checkBtn.addEventListener('click', () => handlers.onToggleDone(d));
+    if (readOnly) {
+      checkBtn.disabled = true;
+      checkBtn.style.opacity = '0.55';
+      checkBtn.style.cursor = 'default';
+      checkBtn.title = 'Modo leitor: apenas visualização';
+    } else {
+      checkBtn.addEventListener('click', () => handlers.onToggleDone(d));
+    }
 
     const titleEl = document.createElement('h3');
     titleEl.className = 'demand-title';
@@ -329,7 +347,7 @@ export function renderDemandsList(container, demandas, prefs, handlers) {
     const actions = document.createElement('div');
     actions.className = 'demand-actions';
 
-    if (!isDone) {
+    if (!readOnly && !isDone) {
       const snoozeBtn = document.createElement('button');
       snoozeBtn.type = 'button';
       snoozeBtn.className = 'btn btn-ghost btn-sm';
@@ -342,18 +360,21 @@ export function renderDemandsList(container, demandas, prefs, handlers) {
     const editBtn = document.createElement('button');
     editBtn.type = 'button';
     editBtn.className = 'btn btn-ghost btn-sm';
-    editBtn.textContent = 'Editar';
-    editBtn.setAttribute('aria-label', `Editar demanda ${d.titulo}`);
+    editBtn.textContent = readOnly ? 'Ver / Comentar' : 'Editar';
+    editBtn.setAttribute('aria-label', `${readOnly ? 'Visualizar e comentar demanda' : 'Editar demanda'} ${d.titulo}`);
     editBtn.addEventListener('click', () => handlers.onEdit(d));
+    actions.appendChild(editBtn);
 
-    const delBtn = document.createElement('button');
-    delBtn.type = 'button';
-    delBtn.className = 'btn btn-ghost btn-sm';
-    delBtn.textContent = 'Excluir';
-    delBtn.setAttribute('aria-label', `Excluir demanda ${d.titulo}`);
-    delBtn.addEventListener('click', () => handlers.onDelete(d));
+    if (!readOnly) {
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.className = 'btn btn-ghost btn-sm';
+      delBtn.textContent = 'Excluir';
+      delBtn.setAttribute('aria-label', `Excluir demanda ${d.titulo}`);
+      delBtn.addEventListener('click', () => handlers.onDelete(d));
+      actions.appendChild(delBtn);
+    }
 
-    actions.append(editBtn, delBtn);
     top.append(checkWrap, actions);
     card.appendChild(top);
 
@@ -412,6 +433,10 @@ export function renderDemandsList(container, demandas, prefs, handlers) {
 
     if (d.categoria) {
       meta.appendChild(createBadge(d.categoria));
+    }
+
+    if (d.responsavelNome) {
+      meta.appendChild(createBadge(`👤 ${d.responsavelNome}`, 'badge-tag'));
     }
 
     if (d.recorrencia?.tipo) {
