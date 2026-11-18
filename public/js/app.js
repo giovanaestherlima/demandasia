@@ -81,6 +81,7 @@ import {
   applyTheme,
   filterAndSortDemandas,
   formatDateBR,
+  getDemandAssignees,
   renderAttentionPanel,
   renderDemandsList,
   renderLoadingSkeletons,
@@ -287,7 +288,7 @@ const els = {
   assigneeFilterSelect: document.getElementById('assignee-filter-select'),
 
   editResponsavelWrap: document.getElementById('edit-responsavel-wrap'),
-  editResponsavel: document.getElementById('edit-responsavel'),
+  editResponsaveisList: document.getElementById('edit-responsaveis-list'),
   previewSaveBtn: document.getElementById('preview-save-btn'),
   commentsSection: document.getElementById('comments-section'),
   commentsList: document.getElementById('comments-list'),
@@ -445,20 +446,32 @@ function populateMemberSelects() {
     els.assigneeFilterSelect.value = prev;
   }
 
-  if (els.editResponsavel) {
-    const prevVal = els.editResponsavel.value;
-    els.editResponsavel.replaceChildren();
-    const emptyOpt = document.createElement('option');
-    emptyOpt.value = '';
-    emptyOpt.textContent = 'Sem responsável';
-    els.editResponsavel.appendChild(emptyOpt);
-    for (const m of state.workspaceMembers) {
-      const opt = document.createElement('option');
-      opt.value = m.uid;
-      opt.textContent = `${m.nome || m.email}${m.uid === state.user?.uid ? ' (você)' : ''}`;
-      els.editResponsavel.appendChild(opt);
+  if (els.editResponsaveisList) {
+    const prevChecked = new Set(
+      Array.from(els.editResponsaveisList.querySelectorAll('input[type="checkbox"]:checked')).map((el) => el.value)
+    );
+    els.editResponsaveisList.replaceChildren();
+    if (state.workspaceMembers.length === 0) {
+      const emptyMsg = document.createElement('span');
+      emptyMsg.style.cssText = 'font-size:0.82rem;color:var(--text-muted);';
+      emptyMsg.textContent = 'Nenhum membro disponível.';
+      els.editResponsaveisList.appendChild(emptyMsg);
+    } else {
+      for (const m of state.workspaceMembers) {
+        const lbl = document.createElement('label');
+        lbl.style.cssText = 'display:inline-flex;align-items:center;gap:0.35rem;padding:0.25rem 0.55rem;border:1px solid var(--border);border-radius:999px;font-size:0.82rem;cursor:pointer;background:var(--surface-card);';
+        const chk = document.createElement('input');
+        chk.type = 'checkbox';
+        chk.value = m.uid;
+        chk.dataset.nome = m.nome || m.email || 'Membro';
+        chk.checked = prevChecked.has(m.uid);
+        chk.disabled = isReadOnlyRole();
+        const span = document.createElement('span');
+        span.textContent = `${m.nome || m.email}${m.uid === state.user?.uid ? ' (você)' : ''}`;
+        lbl.append(chk, span);
+        els.editResponsaveisList.appendChild(lbl);
+      }
     }
-    els.editResponsavel.value = prevVal;
   }
 }
 
@@ -852,12 +865,16 @@ function setPreviewReadOnlyMode(readOnly) {
     els.editEtiquetas,
     els.editRecorrencia,
     els.editDiaMes,
-    els.editResponsavel,
     els.newSubtaskInput,
     els.addSubtaskBtn
   ];
   for (const f of fields) {
     if (f) f.disabled = readOnly;
+  }
+  if (els.editResponsaveisList) {
+    els.editResponsaveisList.querySelectorAll('input[type="checkbox"]').forEach((chk) => {
+      chk.disabled = readOnly;
+    });
   }
   if (els.previewSaveBtn) {
     els.previewSaveBtn.classList.toggle('hidden', readOnly);
@@ -925,8 +942,11 @@ function fillPreviewFields(d) {
   els.editCategoria.value = d.categoria || '';
   els.editStatus.value = d.status || 'pendente';
   els.editEtiquetas.value = (d.etiquetas || []).join(', ');
-  if (els.editResponsavel) {
-    els.editResponsavel.value = d.responsavelUid || '';
+  if (els.editResponsaveisList) {
+    const selectedUids = new Set(getDemandAssignees(d).map((a) => a.uid));
+    els.editResponsaveisList.querySelectorAll('input[type="checkbox"]').forEach((chk) => {
+      chk.checked = selectedUids.has(chk.value);
+    });
   }
 
   const recTipo = d.recorrencia?.tipo || 'nenhuma';
@@ -1403,8 +1423,15 @@ function bindEvents() {
             ...(recTipo === 'dia_mes' ? { diaMes: Number(els.editDiaMes.value) || 1 } : {})
           };
 
-    const respUid = els.editResponsavel?.value || null;
-    const respMember = respUid ? state.workspaceMembers.find((m) => m.uid === respUid) : null;
+    const responsaveis = els.editResponsaveisList
+      ? Array.from(els.editResponsaveisList.querySelectorAll('input[type="checkbox"]:checked')).map((chk) => {
+          const m = state.workspaceMembers.find((x) => x.uid === chk.value);
+          return {
+            uid: chk.value,
+            nome: m?.nome || m?.email || chk.dataset.nome || 'Membro'
+          };
+        })
+      : [];
 
     const dados = {
       titulo: els.editTitulo.value.trim(),
@@ -1416,8 +1443,7 @@ function bindEvents() {
       etiquetas,
       recorrencia,
       subtarefas: state.editingSubtarefas,
-      responsavelUid: respUid,
-      responsavelNome: respMember ? respMember.nome || respMember.email : null,
+      responsaveis,
       ...(modoEstudanteAtivo() && studentUiMod ? studentUiMod.readPreviewAcademicFields() : {})
     };
 

@@ -85,6 +85,38 @@ function appendHistorico(atual, acao, detalhe = '') {
   return base.slice(-100);
 }
 
+function normalizeResponsaveis(dados) {
+  const lista = [];
+  const vistos = new Set();
+  if (Array.isArray(dados?.responsaveis)) {
+    for (const r of dados.responsaveis) {
+      const uid = String(r?.uid || '').trim();
+      if (!uid || vistos.has(uid)) continue;
+      vistos.add(uid);
+      lista.push({
+        uid: uid.slice(0, 128),
+        nome: String(r?.nome || 'Membro').trim().slice(0, 80)
+      });
+      if (lista.length >= 50) break;
+    }
+  } else if (dados?.responsavelUid) {
+    const uid = String(dados.responsavelUid).trim();
+    if (uid) {
+      lista.push({
+        uid: uid.slice(0, 128),
+        nome: String(dados.responsavelNome || 'Membro').trim().slice(0, 80)
+      });
+    }
+  }
+  const nomes = lista.map((r) => r.nome).join(', ').slice(0, 120) || null;
+  return {
+    responsaveis: lista,
+    responsaveisUids: lista.map((r) => r.uid),
+    responsavelUid: lista[0]?.uid ?? null,
+    responsavelNome: nomes
+  };
+}
+
 /**
  * Inscreve um listener em tempo real nas demandas do espaço ativo.
  */
@@ -125,8 +157,7 @@ export async function createDemanda(wsId, user, dados) {
     recorrencia: normalizeRecorrencia(dados.recorrencia),
     etiquetas: normalizeEtiquetas(dados.etiquetas),
     historico: appendHistorico(dados.historico, 'criada', dados.origem === 'voz' ? 'por voz' : 'por texto'),
-    responsavelUid: dados.responsavelUid ?? null,
-    responsavelNome: dados.responsavelNome ?? null,
+    ...normalizeResponsaveis(dados),
     ...(dados.disciplinaId !== undefined ? { disciplinaId: dados.disciplinaId || null } : {}),
     ...(dados.semestreId !== undefined ? { semestreId: dados.semestreId || null } : {}),
     ...(dados.tipo !== undefined ? { tipo: dados.tipo || null } : {}),
@@ -164,9 +195,8 @@ export async function updateDemanda(wsId, uid, demandaId, dados, historicoAcao =
     concluidoEm: concluida ? (dados.concluidoEm || serverTimestamp()) : null
   };
 
-  if (dados.responsavelUid !== undefined) {
-    payload.responsavelUid = dados.responsavelUid ?? null;
-    payload.responsavelNome = dados.responsavelNome ?? null;
+  if (dados.responsaveis !== undefined || dados.responsavelUid !== undefined) {
+    Object.assign(payload, normalizeResponsaveis(dados));
   }
   if (dados.disciplinaId !== undefined) payload.disciplinaId = dados.disciplinaId || null;
   if (dados.semestreId !== undefined) payload.semestreId = dados.semestreId || null;
@@ -250,8 +280,7 @@ export async function toggleDemandaStatus(wsId, user, demanda) {
       subtarefas: subtarefasReset,
       recorrencia: demanda.recorrencia,
       etiquetas: demanda.etiquetas || [],
-      responsavelUid: demanda.responsavelUid ?? null,
-      responsavelNome: demanda.responsavelNome ?? null,
+      ...normalizeResponsaveis(demanda),
       historico: []
     });
     return { generatedNext: true, proximoPrazo };
@@ -294,8 +323,7 @@ export async function restoreDemanda(wsId, user, snapshot) {
     adiadoAte: snapshot.adiadoAte || null,
     recorrencia: normalizeRecorrencia(snapshot.recorrencia),
     etiquetas: normalizeEtiquetas(snapshot.etiquetas),
-    responsavelUid: snapshot.responsavelUid ?? null,
-    responsavelNome: snapshot.responsavelNome ?? null,
+    ...normalizeResponsaveis(snapshot),
     criadoPorUid: snapshot.criadoPorUid || uid,
     criadoPorNome: snapshot.criadoPorNome || 'Usuário',
     atualizadoPorUid: uid,

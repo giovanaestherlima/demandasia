@@ -407,7 +407,7 @@ service cloud.firestore {
       ];
 
       return hasRequiredFields(requiredFields) &&
-             data.keys().size() <= 30 &&
+             data.keys().size() <= 32 &&
              data.titulo is string &&
              data.titulo.size() >= 1 &&
              data.titulo.size() <= 120 &&
@@ -441,6 +441,8 @@ service cloud.firestore {
              (!('etiquetas' in data) || isValidList(data.etiquetas, 20)) &&
              (!('responsavelUid' in data) || data.responsavelUid == null || (data.responsavelUid is string && data.responsavelUid.size() <= 128)) &&
              (!('responsavelNome' in data) || data.responsavelNome == null || (data.responsavelNome is string && data.responsavelNome.size() <= 120)) &&
+             (!('responsaveis' in data) || isValidList(data.responsaveis, 50)) &&
+             (!('responsaveisUids' in data) || isValidList(data.responsaveisUids, 50)) &&
              (!('criadoPorNome' in data) || data.criadoPorNome == null || (data.criadoPorNome is string && data.criadoPorNome.size() <= 120)) &&
              // Campos acadêmicos opcionais (Modo Estudante)
              (!('disciplinaId' in data) || data.disciplinaId == null || (data.disciplinaId is string && data.disciplinaId.size() <= 60)) &&

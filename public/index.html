@@ -304,10 +304,8 @@
           <input id="edit-dia-mes" type="number" min="1" max="31" value="1" class="input-control">
         </div>
         <div id="edit-responsavel-wrap" class="form-field">
-          <label for="edit-responsavel">Responsável</label>
-          <select id="edit-responsavel" class="select-control">
-            <option value="">Sem responsável</option>
-          </select>
+          <label>Responsáveis</label>
+          <div id="edit-responsaveis-list" role="group" aria-label="Responsáveis pela demanda" style="display:flex;flex-wrap:wrap;gap:0.4rem;padding:0.45rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);max-height:130px;overflow-y:auto;"></div>
         </div>
 
         <!-- Subtarefas / Checklist -->

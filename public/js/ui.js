@@ -200,6 +200,16 @@ function buildSearchableDates(d) {
   return partes.join(' ');
 }
 
+export function getDemandAssignees(d) {
+  if (Array.isArray(d?.responsaveis) && d.responsaveis.length > 0) {
+    return d.responsaveis.filter((r) => r && r.uid);
+  }
+  if (d?.responsavelUid) {
+    return [{ uid: d.responsavelUid, nome: d.responsavelNome || 'Membro' }];
+  }
+  return [];
+}
+
 export function filterAndSortDemandas(demandas, { filter, search, sort, tag, assignee, currentUid }) {
   const termo = normalizeSearchText(String(search || '').trim());
   const hoje = todayLocalISO();
@@ -216,12 +226,13 @@ export function filterAndSortDemandas(demandas, { filter, search, sort, tag, ass
 
     if (tag && !(d.etiquetas || []).includes(tag)) return false;
 
+    const assignees = getDemandAssignees(d);
     if (assignee && assignee !== 'todos') {
       if (assignee === 'minhas') {
-        if (!currentUid || d.responsavelUid !== currentUid) return false;
+        if (!currentUid || !assignees.some((a) => a.uid === currentUid)) return false;
       } else if (assignee === 'sem_responsavel') {
-        if (d.responsavelUid) return false;
-      } else if (d.responsavelUid !== assignee) {
+        if (assignees.length > 0) return false;
+      } else if (!assignees.some((a) => a.uid === assignee)) {
         return false;
       }
     }
@@ -230,8 +241,9 @@ export function filterAndSortDemandas(demandas, { filter, search, sort, tag, ass
       const tagsTxt = (d.etiquetas || []).join(' ');
       const prioLabel = LABEL_PRIORIDADE[d.prioridade] || '';
       const datasTxt = buildSearchableDates(d);
+      const respTxt = assignees.map((a) => a.nome || '').join(' ');
       const alvo = normalizeSearchText(
-        `${d.titulo} ${d.descricao} ${d.categoria || ''} ${d.responsavelNome || ''} ${d.prioridade || ''} ${prioLabel} ${tagsTxt} ${datasTxt}`
+        `${d.titulo} ${d.descricao} ${d.categoria || ''} ${respTxt} ${d.prioridade || ''} ${prioLabel} ${tagsTxt} ${datasTxt}`
       );
       if (!alvo.includes(termo)) return false;
     }
@@ -435,8 +447,8 @@ export function renderDemandsList(container, demandas, prefs, handlers, options 
       meta.appendChild(createBadge(d.categoria));
     }
 
-    if (d.responsavelNome) {
-      meta.appendChild(createBadge(`👤 ${d.responsavelNome}`, 'badge-tag'));
+    for (const a of getDemandAssignees(d)) {
+      meta.appendChild(createBadge(`👤 ${a.nome || 'Membro'}`, 'badge-tag'));
     }
 
     if (d.recorrencia?.tipo) {
