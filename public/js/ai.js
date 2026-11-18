@@ -8,7 +8,7 @@ import { ai } from './firebase-config.js?v=5';
 
 const PRIORIDADES_VALIDAS = new Set(['baixa', 'media', 'alta', 'urgente']);
 const MODELO_GEMINI = 'gemini-3.5-flash-lite';
-const DEFAULT_TIMEOUT_MS = 8000;
+const DEFAULT_TIMEOUT_MS = 30000;
 const MAX_CACHE_SIZE = 50;
 
 let structuredModel = null;
@@ -337,67 +337,83 @@ export async function parseDemandWithAIStream(textoLivre, options = {}) {
     };
   }
 
-  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  let cancelled = false;
+  const totalTimeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const deadline = Date.now() + totalTimeoutMs;
+  let lastErr = null;
+  let attempt = 0;
 
-  const runStream = async () => {
-    const prompt = buildCompactPrompt(texto);
-    const result = await model.generateContentStream(prompt);
-    let buffer = '';
-    const sent = {};
+  while (Date.now() < deadline) {
+    attempt += 1;
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) break;
 
-    for await (const chunk of result.stream) {
-      if (cancelled) break;
-      buffer += chunk.text();
-      if (options.onPartial) {
-        const partial = extractPartialFieldsFromJsonStream(buffer);
-        const delta = {};
-        for (const [k, v] of Object.entries(partial)) {
-          if (sent[k] !== v) {
-            sent[k] = v;
-            delta[k] = v;
+    const perAttemptMs = Math.min(remainingMs, 10000);
+    let cancelled = false;
+    let timerId;
+
+    const runStream = async () => {
+      const prompt = buildCompactPrompt(texto);
+      const result = await model.generateContentStream(prompt);
+      let buffer = '';
+      const sent = {};
+
+      for await (const chunk of result.stream) {
+        if (cancelled) break;
+        buffer += chunk.text();
+        if (options.onPartial) {
+          const partial = extractPartialFieldsFromJsonStream(buffer);
+          const delta = {};
+          for (const [k, v] of Object.entries(partial)) {
+            if (sent[k] !== v) {
+              sent[k] = v;
+              delta[k] = v;
+            }
+          }
+          if (Object.keys(delta).length > 0) {
+            options.onPartial(delta);
           }
         }
-        if (Object.keys(delta).length > 0) {
-          options.onPartial(delta);
-        }
       }
-    }
 
-    const finalResponse = await result.response;
-    const finalJsonText = finalResponse.text() || buffer;
-    const parsed = JSON.parse(finalJsonText);
-    const demanda = validateAiDemandJson(parsed, texto);
-    saveToCache(cacheKey, demanda);
-    return demanda;
-  };
-
-  let timerId;
-  const timeoutPromise = new Promise((_, reject) => {
-    timerId = setTimeout(() => {
-      cancelled = true;
-      reject(new Error(`Tempo limite da IA (${Math.round(timeoutMs / 1000)}s) excedido`));
-    }, timeoutMs);
-  });
-
-  try {
-    const demanda = await Promise.race([runStream(), timeoutPromise]);
-    clearTimeout(timerId);
-    const elapsedMs = Math.round(performance.now() - t0);
-    return { demanda, usedFallback: false, cached: false, elapsedMs };
-  } catch (err) {
-    clearTimeout(timerId);
-    const elapsedMs = Math.round(performance.now() - t0);
-    const timedOut = String(err?.message || '').includes('Tempo limite');
-    console.warn('[Pauta AI] Fallback acionado:', err);
-    return {
-      demanda: buildFallbackDemand(texto),
-      usedFallback: true,
-      timedOut,
-      reason: err?.message || 'Erro ao consultar IA',
-      elapsedMs
+      const finalResponse = await result.response;
+      const finalJsonText = finalResponse.text() || buffer;
+      const parsed = JSON.parse(finalJsonText);
+      const demanda = validateAiDemandJson(parsed, texto);
+      saveToCache(cacheKey, demanda);
+      return demanda;
     };
+
+    const timeoutPromise = new Promise((_, reject) => {
+      timerId = setTimeout(() => {
+        cancelled = true;
+        reject(new Error(`Tempo limite da IA (${Math.round(totalTimeoutMs / 1000)}s) excedido`));
+      }, perAttemptMs);
+    });
+
+    try {
+      const demanda = await Promise.race([runStream(), timeoutPromise]);
+      clearTimeout(timerId);
+      const elapsedMs = Math.round(performance.now() - t0);
+      return { demanda, usedFallback: false, cached: false, elapsedMs };
+    } catch (err) {
+      clearTimeout(timerId);
+      lastErr = err;
+      const timeLeft = deadline - Date.now();
+      if (timeLeft <= 800 || attempt >= 4) break;
+      await new Promise((r) => setTimeout(r, 600));
+    }
   }
+
+  const elapsedMs = Math.round(performance.now() - t0);
+  const timedOut = elapsedMs >= totalTimeoutMs - 500 || String(lastErr?.message || '').includes('Tempo limite');
+  console.warn('[Pauta AI] Fallback acionado após tentativas:', lastErr);
+  return {
+    demanda: buildFallbackDemand(texto),
+    usedFallback: true,
+    timedOut,
+    reason: lastErr?.message || 'Erro ao consultar IA',
+    elapsedMs
+  };
 }
 
 // ============================================================================

@@ -784,7 +784,7 @@ async function runPreviewAiRefinement(texto, sessionId, localMs) {
   setPreviewAiBar('refining', 'Refinando com IA…', false);
 
   const result = await parseDemandWithAIStream(texto, {
-    timeoutMs: 8000,
+    timeoutMs: 30000,
     onPartial: (partialFields) => {
       if (state.refineSessionId !== sessionId || !els.previewDialog.open) return;
       applyAiFieldsIfClean(partialFields);
@@ -796,7 +796,7 @@ async function runPreviewAiRefinement(texto, sessionId, localMs) {
   recordPerf(localMs, result.elapsedMs, result.cached, result.usedFallback);
 
   if (result.usedFallback) {
-    const motivo = result.timedOut ? 'IA demorou mais de 8s' : (result.reason || 'IA indisponível');
+    const motivo = result.timedOut ? 'IA demorou mais de 30s' : (result.reason || 'IA indisponível');
     const perfTxt = state.debugTempo ? ` [${localMs}ms local | ${result.elapsedMs}ms IA]` : '';
     setPreviewAiBar('warn', `Versão local mantida (${motivo}).${perfTxt}`, true);
     return;
@@ -987,6 +987,8 @@ function setPreviewReadOnlyMode(readOnly) {
   }
   if (els.previewSaveBtn) {
     els.previewSaveBtn.classList.toggle('hidden', readOnly);
+    els.previewSaveBtn.disabled = false;
+    els.previewSaveBtn.textContent = 'Salvar';
   }
 }
 
@@ -1578,20 +1580,40 @@ function bindEvents() {
       return;
     }
 
+    const wsId = state.activeWsId;
+    const user = state.user;
+
+    if (els.previewSaveBtn) {
+      els.previewSaveBtn.disabled = true;
+      els.previewSaveBtn.textContent = 'Salvando…';
+    }
+
     try {
       if (state.editingDemand) {
         const prevSnapshot = { ...state.editingDemand };
-        await updateDemanda(state.activeWsId, state.user.uid, state.editingDemand.id, {
+        const writePromise = updateDemanda(wsId, user.uid, state.editingDemand.id, {
           ...dados,
           historico: state.editingDemand.historico,
           concluidoEm: state.editingDemand.concluidoEm
         });
-        showToast('Demanda atualizada.', 6000, () => restoreDemanda(state.activeWsId, state.user, prevSnapshot));
+        writePromise.catch((err) => {
+          showToast('Erro ao sincronizar edição com o Firestore.');
+          console.error(err);
+        });
+        // Aguarda até 250ms para gravar no cache local do IndexedDB antes de fechar
+        await Promise.race([writePromise, new Promise((r) => setTimeout(r, 250))]);
+        showToast('Demanda atualizada.', 6000, () => restoreDemanda(wsId, user, prevSnapshot));
       } else if (state.pendingDraft) {
-        await createDemanda(state.activeWsId, state.user, {
+        const writePromise = createDemanda(wsId, user, {
           ...state.pendingDraft,
           ...dados
         });
+        writePromise.catch((err) => {
+          showToast('Erro ao sincronizar demanda com o Firestore.');
+          console.error(err);
+        });
+        await Promise.race([writePromise, new Promise((r) => setTimeout(r, 250))]);
+
         if (state.batchQueue.length > 1) {
           state.batchQueue.shift();
           openNextBatchItem();
@@ -1607,6 +1629,11 @@ function bindEvents() {
     } catch (err) {
       showToast('Erro ao salvar demanda no Firestore.');
       console.error(err);
+    } finally {
+      if (els.previewSaveBtn) {
+        els.previewSaveBtn.disabled = false;
+        els.previewSaveBtn.textContent = 'Salvar';
+      }
     }
   });
 
