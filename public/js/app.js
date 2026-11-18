@@ -152,7 +152,10 @@ const els = {
   userAvatar: document.getElementById('user-avatar'),
   userName: document.getElementById('user-name'),
   settingsBtn: document.getElementById('settings-btn'),
-  themeToggleBtn: document.getElementById('theme-toggle-btn'),
+  tutorialBtn: document.getElementById('tutorial-btn'),
+  tutorialDialog: document.getElementById('tutorial-dialog'),
+  tutorialCloseX: document.getElementById('tutorial-close-x'),
+  tutorialCloseBtn: document.getElementById('tutorial-close-btn'),
   installAppBtn: document.getElementById('install-app-btn'),
   iosInstallBanner: document.getElementById('ios-install-banner'),
   iosInstallDismiss: document.getElementById('ios-install-dismiss'),
@@ -270,6 +273,7 @@ const els = {
   cfgAmarelo: document.getElementById('cfg-amarelo'),
   cfgLaranja: document.getElementById('cfg-laranja'),
   cfgVermelho: document.getElementById('cfg-vermelho'),
+  cfgTema: document.getElementById('cfg-tema'),
   cfgNotifBtn: document.getElementById('cfg-notif-btn'),
   cfgDeleteLegacyWrap: document.getElementById('cfg-delete-legacy-wrap'),
   cfgDeleteLegacyBtn: document.getElementById('cfg-delete-legacy-btn'),
@@ -1364,17 +1368,9 @@ function bindEvents() {
     await logout();
   });
 
-  els.themeToggleBtn.addEventListener('click', async () => {
-    const atual = document.documentElement.dataset.theme;
-    const isDarkSystem = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    const proximo =
-      atual === 'escuro' ? 'claro' : atual === 'claro' ? 'escuro' : isDarkSystem ? 'claro' : 'escuro';
-    applyTheme(proximo);
-    state.prefs.tema = proximo;
-    if (state.user) {
-      await savePreferences(state.user.uid, { tema: proximo }).catch(() => {});
-    }
-  });
+  els.tutorialBtn?.addEventListener('click', () => els.tutorialDialog?.showModal());
+  els.tutorialCloseX?.addEventListener('click', () => els.tutorialDialog?.close());
+  els.tutorialCloseBtn?.addEventListener('click', () => els.tutorialDialog?.close());
 
   els.speakSummaryBtn.addEventListener('click', () => {
     const { text } = buildSummaryMessage(state.demandas);
@@ -1720,6 +1716,7 @@ function bindEvents() {
     els.cfgAmarelo.value = state.prefs.diasAvisoAmarelo ?? 3;
     els.cfgLaranja.value = state.prefs.diasAvisoLaranja ?? 7;
     els.cfgVermelho.value = state.prefs.diasAvisoVermelho ?? 14;
+    if (els.cfgTema) els.cfgTema.value = state.prefs.tema || 'sistema';
 
     const quota = getQuotaStats();
     if (state.lastPerf || state.debugTempo) {
@@ -1736,6 +1733,10 @@ function bindEvents() {
 
     updateNotifButtonText();
     els.settingsDialog.showModal();
+  });
+
+  els.cfgTema?.addEventListener('change', () => {
+    applyTheme(els.cfgTema.value);
   });
 
   const handleDeleteLegacy = async () => {
@@ -1758,7 +1759,10 @@ function bindEvents() {
   els.migrationDeleteLegacyBtn.addEventListener('click', handleDeleteLegacy);
   els.migrationCloseBtn.addEventListener('click', () => els.migrationDialog.close());
 
-  els.settingsCloseX.addEventListener('click', () => els.settingsDialog.close('cancel'));
+  els.settingsCloseX.addEventListener('click', () => {
+    applyTheme(state.prefs.tema);
+    els.settingsDialog.close('cancel');
+  });
 
   els.cfgNotifBtn.addEventListener('click', async () => {
     const perm = await requestBrowserNotificationPermission();
@@ -1778,6 +1782,7 @@ function bindEvents() {
 
       const novasPrefs = {
         ...state.prefs,
+        tema: els.cfgTema?.value || state.prefs.tema || 'sistema',
         salvarDiretoSemPrevia: els.cfgSalvarDireto.checked,
         silenciarResumoFalado: els.cfgSilenciarFala.checked,
         intervaloLembreteMinutos: Math.max(1, Number(els.cfgIntervalo.value) || 30),
@@ -1790,6 +1795,7 @@ function bindEvents() {
       };
 
       state.prefs = novasPrefs;
+      applyTheme(novasPrefs.tema);
       updateMuteButtonUI();
       renderAll();
       reminderScheduler.restart();

@@ -38,10 +38,10 @@
         </div>
 
         <div class="header-actions">
-          <button id="theme-toggle-btn" type="button" class="btn btn-icon" aria-label="Alternar tema claro ou escuro" title="Alternar tema">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <circle cx="12" cy="12" r="4"/>
-              <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>
+          <button id="tutorial-btn" type="button" class="btn btn-icon" aria-label="Como usar o Pauta (tutorial)" title="Como usar o Pauta">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M9 18h6"/><path d="M10 22h4"/>
+              <path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14"/>
             </svg>
           </button>
 
@@ -536,6 +536,15 @@
           <input id="cfg-vermelho" type="number" min="1" max="365" class="input-control">
         </div>
 
+        <div class="form-field">
+          <label for="cfg-tema">Tema do site</label>
+          <select id="cfg-tema" class="select-control">
+            <option value="sistema">Automático (sistema)</option>
+            <option value="claro">Claro</option>
+            <option value="escuro">Escuro</option>
+          </select>
+        </div>
+
         <div class="switch-row">
           <span>Notificações do navegador</span>
           <button type="button" id="cfg-notif-btn" class="btn btn-secondary btn-sm">Permitir</button>
@@ -790,6 +799,48 @@
     <div class="dialog-footer">
       <button type="button" id="corp-activate-cancel" class="btn btn-secondary">Agora não</button>
       <button type="button" id="corp-activate-save" class="btn btn-primary">Ativar</button>
+    </div>
+  </dialog>
+
+  <!-- Diálogo Tutorial Básico (Modos Simples, Estudante e Corporativo) -->
+  <dialog id="tutorial-dialog" aria-labelledby="tutorial-dialog-title">
+    <div class="dialog-header">
+      <h2 id="tutorial-dialog-title">Como usar o Pauta</h2>
+      <button type="button" id="tutorial-close-x" class="btn btn-ghost btn-sm" aria-label="Fechar">✕</button>
+    </div>
+    <div class="dialog-body" style="gap:1rem;">
+      <section style="border:1px solid var(--border);border-radius:var(--radius-md);padding:0.75rem;background:var(--surface);">
+        <h3 style="margin:0 0 0.45rem;font-size:1rem;">1. Modo Simples (padrão)</h3>
+        <img src="/img/tutorial-simples.jpg" alt="Ilustração do Modo Simples do Pauta" loading="lazy" style="width:100%;border-radius:var(--radius-sm);margin-bottom:0.55rem;border:1px solid var(--border);">
+        <ul style="margin:0;padding-left:1.1rem;font-size:0.86rem;display:flex;flex-direction:column;gap:0.25rem;">
+          <li><strong>Crie demandas:</strong> toque no microfone e fale naturalmente, ou digite na caixa de texto e clique em <em>Organizar</em>.</li>
+          <li><strong>Gerencie rápido:</strong> clique no card para abrir e editar, use o círculo à esquerda para concluir e os 3 pontos (<code>⋮</code>) para <em>Adiar</em> ou <em>Excluir</em>.</li>
+          <li><strong>Colabore:</strong> use a barra de espaços no topo para criar equipes, convidar colegas e atribuir responsáveis.</li>
+        </ul>
+      </section>
+
+      <section style="border:1px solid var(--border);border-radius:var(--radius-md);padding:0.75rem;background:var(--surface);">
+        <h3 style="margin:0 0 0.45rem;font-size:1rem;">2. Modo Estudante</h3>
+        <img src="/img/tutorial-estudante.jpg" alt="Ilustração do Modo Estudante do Pauta" loading="lazy" style="width:100%;border-radius:var(--radius-sm);margin-bottom:0.55rem;border:1px solid var(--border);">
+        <ul style="margin:0;padding-left:1.1rem;font-size:0.86rem;display:flex;flex-direction:column;gap:0.25rem;">
+          <li><strong>Ative:</strong> clique em <em>Modos do Pauta</em> no topo e ligue o modo <em>Estudante</em>.</li>
+          <li><strong>Disciplinas e notas:</strong> cadastre matérias, dias de aula, faltas e quantas provas + final terá; o Pauta calcula quanto falta para passar.</li>
+          <li><strong>Planner e Foco:</strong> gere planners semanais ou mensais em PDF e use o timer Pomodoro para estudar.</li>
+        </ul>
+      </section>
+
+      <section style="border:1px solid var(--border);border-radius:var(--radius-md);padding:0.75rem;background:var(--surface);">
+        <h3 style="margin:0 0 0.45rem;font-size:1rem;">3. Modo Corporativo</h3>
+        <img src="/img/tutorial-corporativo.jpg" alt="Ilustração do Modo Corporativo do Pauta" loading="lazy" style="width:100%;border-radius:var(--radius-sm);margin-bottom:0.55rem;border:1px solid var(--border);">
+        <ul style="margin:0;padding-left:1.1rem;font-size:0.86rem;display:flex;flex-direction:column;gap:0.25rem;">
+          <li><strong>Reuniões e atas:</strong> registre atas por voz ou texto e clique em <em>Extrair tarefas</em> para transformar combinados em demandas revisáveis.</li>
+          <li><strong>Relatório semanal:</strong> gere um resumo pronto para e-mail, WhatsApp ou Markdown em um clique.</li>
+          <li><strong>Links diretos e histórico:</strong> copie o link de uma demanda para colegas e acompanhe quem concluiu cada entrega.</li>
+        </ul>
+      </section>
+    </div>
+    <div class="dialog-footer">
+      <button type="button" id="tutorial-close-btn" class="btn btn-primary">Entendi</button>
     </div>
   </dialog>
 
