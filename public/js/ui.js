@@ -328,6 +328,9 @@ export function renderDemandsList(container, demandas, prefs, handlers, options 
       const btn = el.previousElementSibling;
       if (btn) btn.setAttribute('aria-expanded', 'false');
     });
+    container.querySelectorAll('.demand-card.has-open-menu').forEach((c) => {
+      c.classList.remove('has-open-menu');
+    });
   };
   if (!container.dataset.menuOutsideBound) {
     container.dataset.menuOutsideBound = '1';
@@ -337,6 +340,9 @@ export function renderDemandsList(container, demandas, prefs, handlers, options 
           el.classList.add('hidden');
           const btn = el.previousElementSibling;
           if (btn) btn.setAttribute('aria-expanded', 'false');
+        });
+        document.querySelectorAll('.demand-card.has-open-menu').forEach((c) => {
+          c.classList.remove('has-open-menu');
         });
       }
     });
@@ -405,6 +411,7 @@ export function renderDemandsList(container, demandas, prefs, handlers, options 
       closeAllMenus();
       if (willOpen) {
         popover.classList.remove('hidden');
+        card.classList.add('has-open-menu');
         menuBtn.setAttribute('aria-expanded', 'true');
       }
     });
