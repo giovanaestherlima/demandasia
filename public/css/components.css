@@ -246,7 +246,34 @@
   }
 }
 
-/* ---------- Painel "Atenção" (Topo) ---------- */
+/* ---------- Painel "Atenção" (Retrátil) ---------- */
+.attention-toggle-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.42rem 0.9rem;
+  border-radius: var(--radius-full);
+  background: var(--attention-bg);
+  color: var(--attention-text);
+  border: 1px solid var(--attention);
+  font-size: 0.86rem;
+  font-weight: 600;
+  transition: background-color var(--duration-fast) var(--ease),
+              transform var(--duration-fast) var(--ease);
+}
+
+.attention-toggle-pill.is-critical {
+  background: var(--critical-bg);
+  color: var(--critical-text);
+  border-color: var(--critical);
+}
+
+.attention-toggle-pill.is-calm {
+  background: var(--done-bg);
+  color: var(--done-text);
+  border-color: var(--done);
+}
+
 .attention-panel {
   background: var(--surface);
   border: 1px solid var(--border);

@@ -101,9 +101,27 @@
 .planner-month-cell {
   border: 1px solid #D3D7DF;
   border-radius: 4px;
-  padding: 0.25rem;
-  min-height: 58px;
-  font-size: 0.7rem;
+  padding: 0.3rem;
+  min-height: 76px;
+  font-size: 0.72rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.planner-month-item {
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.25;
+}
+
+.planner-month-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.78rem;
+  border-top: 1px solid #E2E8F0;
+  padding-top: 0.45rem;
 }
 
 .planner-notes-box {
@@ -138,29 +156,21 @@
   padding-top: 0.3rem;
 }
 
-/* Impressão dedicada do Planner */
+#planner-print-mount {
+  display: none;
+}
+
+/* Impressão dedicada do Planner fora de <dialog> para nunca sair PDF vazio */
 @media print {
-  body.is-printing-planner .app-shell,
-  body.is-printing-planner dialog:not(#planner-dialog) {
+  body.is-printing-planner > :not(#planner-print-mount) {
     display: none !important;
   }
 
-  body.is-printing-planner #planner-dialog {
-    position: static !important;
+  body.is-printing-planner #planner-print-mount {
+    display: block !important;
     width: 100% !important;
-    max-width: none !important;
-    max-height: none !important;
-    border: none !important;
-    box-shadow: none !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    overflow: visible !important;
-  }
-
-  body.is-printing-planner #planner-dialog .dialog-header,
-  body.is-printing-planner #planner-dialog .dialog-footer,
-  body.is-printing-planner .planner-controls {
-    display: none !important;
+    background: #FFFFFF !important;
+    color: #1E232B !important;
   }
 
   body.is-printing-planner .planner-preview-sheet {

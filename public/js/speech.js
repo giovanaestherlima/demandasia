@@ -1,26 +1,18 @@
 // ============================================================================
 // Reconhecimento de Voz (Web Speech API) e Síntese de Fala (SpeechSynthesis)
+// Nunca encerra nem envia sozinho: aguarda o usuário clicar em "Organizar".
 // ============================================================================
 
 const SpeechRecognitionClass =
   window.SpeechRecognition || window.webkitSpeechRecognition || null;
 
-/**
- * Indica se o navegador atual suporta reconhecimento de voz.
- * @returns {boolean}
- */
 export function isSpeechRecognitionSupported() {
   return Boolean(SpeechRecognitionClass);
 }
 
 /**
- * Cria um controlador de ditado em pt-BR com transcrição em tempo real.
- * @param {{
- *   onInterim: (texto: string) => void,
- *   onFinal: (texto: string) => void,
- *   onError: (mensagem: string) => void,
- *   onEnd: () => void
- * }} handlers
+ * Cria um controlador de ditado em pt-BR que acumula falas continuamente
+ * até o usuário clicar explicitamente em stop() ("Organizar") ou cancel().
  */
 export function createVoiceRecognizer(handlers) {
   if (!SpeechRecognitionClass) {
@@ -29,18 +21,15 @@ export function createVoiceRecognizer(handlers) {
 
   let recognition = null;
   let cancelled = false;
-  let finalTranscript = '';
+  let userStopped = false;
+  let accumulatedFinal = '';
 
-  function start() {
-    cancelled = false;
-    finalTranscript = '';
-
+  function startInstance() {
     const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
     recognition = new SpeechRecognitionClass();
     recognition.lang = 'pt-BR';
     recognition.interimResults = true;
-    // Em celulares, continuous=false evita falhas/bloqueios em Android e iOS
     recognition.continuous = !isMobile;
 
     recognition.onresult = (event) => {
@@ -48,30 +37,51 @@ export function createVoiceRecognizer(handlers) {
       for (let i = event.resultIndex; i < event.results.length; i += 1) {
         const piece = event.results[i][0].transcript;
         if (event.results[i].isFinal) {
-          finalTranscript += `${piece} `;
+          accumulatedFinal += `${piece} `;
         } else {
           interim += piece;
         }
       }
-      const combinado = `${finalTranscript}${interim}`.trim();
+      const combinado = `${accumulatedFinal}${interim}`.trim();
       handlers.onInterim?.(combinado);
     };
 
     recognition.onerror = (event) => {
       if (cancelled) return;
+      // 'no-speech' ou 'aborted' durante pausa não devem encerrar se o usuário não parou
+      if (event.error === 'no-speech' && !userStopped) {
+        return;
+      }
       const mapaErros = {
         'not-allowed': 'Permissão de microfone negada. Habilite o microfone no navegador.',
         'service-not-allowed': 'Voz bloqueada por este navegador (comum no Safari/iOS). Dica: toque no campo abaixo e use o microfone do próprio teclado do celular!',
-        'no-speech': 'Não ouvi nenhuma fala. Tente falar mais perto do microfone.',
         'audio-capture': 'Nenhum microfone encontrado neste dispositivo.',
         network: 'Erro de rede no reconhecimento de voz.'
       };
-      handlers.onError?.(mapaErros[event.error] || `Erro de voz: ${event.error}`);
+      if (mapaErros[event.error]) {
+        userStopped = true;
+        handlers.onError?.(mapaErros[event.error]);
+      }
     };
 
     recognition.onend = () => {
-      const textoFinal = finalTranscript.trim();
-      if (!cancelled && textoFinal) {
+      if (cancelled) {
+        handlers.onEnd?.();
+        return;
+      }
+
+      // Se o usuário ainda não clicou em "Organizar", continua ouvindo sem cortar!
+      if (!userStopped) {
+        try {
+          startInstance();
+          return;
+        } catch {
+          // Se o navegador impedir reinício automático, mantém o texto na tela
+        }
+      }
+
+      const textoFinal = accumulatedFinal.trim();
+      if (userStopped && textoFinal) {
         handlers.onFinal?.(textoFinal);
       }
       handlers.onEnd?.();
@@ -80,15 +90,27 @@ export function createVoiceRecognizer(handlers) {
     recognition.start();
   }
 
+  function start() {
+    cancelled = false;
+    userStopped = false;
+    accumulatedFinal = '';
+    startInstance();
+  }
+
   function stop() {
+    userStopped = true;
     if (recognition) {
       recognition.stop();
+    } else if (accumulatedFinal.trim()) {
+      handlers.onFinal?.(accumulatedFinal.trim());
+      handlers.onEnd?.();
     }
   }
 
   function cancel() {
     cancelled = true;
-    finalTranscript = '';
+    userStopped = true;
+    accumulatedFinal = '';
     if (recognition) {
       recognition.abort();
     }
@@ -97,10 +119,6 @@ export function createVoiceRecognizer(handlers) {
   return { start, stop, cancel };
 }
 
-/**
- * Lê um texto em voz alta usando SpeechSynthesis em português (pt-BR).
- * @param {string} text
- */
 export function speakText(text) {
   if (!('speechSynthesis' in window) || !text) return;
 
@@ -119,9 +137,6 @@ export function speakText(text) {
   window.speechSynthesis.speak(utterance);
 }
 
-/**
- * Interrompe qualquer fala em andamento.
- */
 export function stopSpeaking() {
   if ('speechSynthesis' in window) {
     window.speechSynthesis.cancel();

@@ -82,7 +82,10 @@ export async function createDisciplina(wsId, dados) {
     sala: String(dados.sala || '').trim().slice(0, 40),
     faltasMax: dados.faltasMax ? Number(dados.faltasMax) : 0,
     faltasAtuais: Number(dados.faltasAtuais || 0),
+    qtdProvas: Math.min(12, Math.max(1, Number(dados.qtdProvas) || 2)),
+    temFinal: dados.temFinal !== undefined ? Boolean(dados.temFinal) : true,
     notaMinima: dados.notaMinima !== undefined ? Number(dados.notaMinima) : 7,
+    notaMinimaFinal: dados.notaMinimaFinal !== undefined ? Number(dados.notaMinimaFinal) : 5,
     avaliacoes: Array.isArray(dados.avaliacoes) ? dados.avaliacoes : [],
     semestreId: String(dados.semestreId || 'geral').slice(0, 60),
     criadoEm: serverTimestamp()
@@ -121,27 +124,80 @@ export async function deleteAulaGrade(wsId, aulaId) {
   return deleteDoc(doc(db, 'workspaces', wsId, 'grade', aulaId));
 }
 
-// ---------- Cálculos de Notas e Faltas ----------
-export function computeWeightedGrade(avaliacoes = [], notaMinima = 7) {
-  let somaPonderada = 0;
+// ---------- Cálculo Assertivo de Notas (Provas + Final) ----------
+export function computeWeightedGrade(avaliacoes = [], config = {}) {
+  const notaMinima = Number(config.notaMinima ?? 7);
+  const qtdProvas = Math.max(1, Number(config.qtdProvas ?? 2));
+  const temFinal = config.temFinal !== undefined ? Boolean(config.temFinal) : true;
+  const notaMinimaFinal = Number(config.notaMinimaFinal ?? 5);
+
+  let somaNotas = 0;
   let somaPesos = 0;
+  let preenchidas = 0;
+
   for (const av of avaliacoes) {
     const n = Number(av.nota);
     const p = Number(av.peso || 1);
     if (!Number.isNaN(n) && p > 0) {
-      somaPonderada += n * p;
+      somaNotas += n * p;
       somaPesos += p;
+      preenchidas += 1;
     }
   }
-  if (somaPesos === 0) {
-    return { media: null, precisaProxima: null };
+
+  if (preenchidas === 0) {
+    return {
+      mediaAtual: null,
+      preenchidas: 0,
+      qtdProvas,
+      faltamProvas: qtdProvas,
+      precisaNasRestantes: notaMinima,
+      precisaNaFinal: null,
+      situacao: 'sem_notas'
+    };
   }
-  const media = somaPonderada / somaPesos;
-  // Estimativa simples: quanto precisa numa próxima avaliação de peso 1
-  const precisaProxima = Math.max(0, notaMinima * (somaPesos + 1) - somaPonderada);
+
+  const mediaAtual = Number((somaNotas / somaPesos).toFixed(2));
+  const faltamProvas = Math.max(0, qtdProvas - preenchidas);
+
+  // Quanto precisa tirar de média nas provas restantes (considerando peso 1 por prova restante)
+  let precisaNasRestantes = null;
+  if (faltamProvas > 0) {
+    const totalPesosEsperado = somaPesos + faltamProvas;
+    const pontosNecessarios = notaMinima * totalPesosEsperado - somaNotas;
+    precisaNasRestantes = Number(Math.max(0, pontosNecessarios / faltamProvas).toFixed(2));
+  }
+
+  // Se já fechou todas as provas ou se nem tirando 10 nas restantes atinge a média direta:
+  let precisaNaFinal = null;
+  let situacao = 'em_andamento';
+
+  if (faltamProvas === 0) {
+    if (mediaAtual >= notaMinima) {
+      situacao = 'aprovado_direto';
+    } else if (temFinal) {
+      situacao = 'vai_para_final';
+      // Média final padrão: (mediaParcial + notaFinal) / 2 >= notaMinimaFinal
+      precisaNaFinal = Number(Math.max(0, 2 * notaMinimaFinal - mediaAtual).toFixed(2));
+    } else {
+      situacao = 'abaixo_media';
+    }
+  } else if (precisaNasRestantes > 10 && temFinal) {
+    // Estimativa caso tire 0 ou mantenha média atual e vá para final
+    precisaNaFinal = Number(Math.max(0, 2 * notaMinimaFinal - mediaAtual).toFixed(2));
+  }
+
   return {
-    media: Number(media.toFixed(2)),
-    precisaProxima: Number(precisaProxima.toFixed(2))
+    mediaAtual,
+    preenchidas,
+    qtdProvas,
+    faltamProvas,
+    precisaNasRestantes,
+    precisaNaFinal,
+    situacao,
+    temFinal,
+    notaMinima,
+    notaMinimaFinal
   };
 }
 
@@ -165,4 +221,27 @@ export function matchDisciplineByName(nomeSugerido, disciplinas) {
 
   if (matches.length === 1) return { exact: matches[0], matches };
   return { exact: null, matches };
+}
+
+/**
+ * Procura qualquer disciplina cadastrada citada dentro de um texto livre (voz ou digitado).
+ */
+export function detectDisciplineInText(texto, disciplinas) {
+  if (!texto || !Array.isArray(disciplinas) || disciplinas.length === 0) return null;
+  const norm = (s) =>
+    String(s || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+
+  const textoNorm = norm(texto);
+  // Ordena por nome mais longo primeiro para evitar falsos positivos curtos
+  const ordenadas = [...disciplinas].sort((a, b) => (b.nome || '').length - (a.nome || '').length);
+  for (const disc of ordenadas) {
+    const nomeNorm = norm(disc.nome).trim();
+    if (nomeNorm.length >= 2 && textoNorm.includes(nomeNorm)) {
+      return disc;
+    }
+  }
+  return null;
 }

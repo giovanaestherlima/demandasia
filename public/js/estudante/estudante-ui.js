@@ -13,6 +13,7 @@ import {
   createSemestre,
   deleteAulaGrade,
   deleteDisciplina,
+  detectDisciplineInText,
   loadAcademicData,
   toggleArchiveSemestre,
   updateDisciplina
@@ -177,6 +178,11 @@ function injectPreviewAcademicFields() {
     o.value = t.value;
     sTipo.appendChild(o);
   }
+  sTipo.addEventListener('change', () => {
+    if (sTipo.value === 'prova') {
+      formatTitleAsExam();
+    }
+  });
   fTipo.append(lTipo, sTipo);
 
   wrap.append(fDisc, fTipo);
@@ -206,6 +212,39 @@ function injectPreviewAcademicFields() {
   }
 }
 
+function formatTitleAsExam() {
+  const tituloEl = document.getElementById('edit-titulo');
+  if (!tituloEl) return;
+  const atual = tituloEl.value.trim();
+  if (!atual) {
+    tituloEl.value = 'Prova de ';
+    return;
+  }
+  if (!/^prova\b/i.test(atual)) {
+    const limpo = atual.replace(/^(?:fazer|estudar(?:\s+para)?|revisar)\s+/i, '').trim();
+    tituloEl.value = `Prova de ${limpo}`.slice(0, 70);
+  }
+}
+
+/**
+ * Detecta automaticamente disciplina cadastrada e tipo acadêmico na fala/texto.
+ */
+export function autoDetectAcademicFields(texto) {
+  const disc = detectDisciplineInText(texto, studentState.disciplinas);
+  const lower = String(texto || '').toLowerCase();
+  let tipo = null;
+  if (/\b(prova|avalia[çc][ãa]o|exame|simulado)\b/.test(lower)) tipo = 'prova';
+  else if (/\b(trabalho|projeto|redação|redacao)\b/.test(lower)) tipo = 'trabalho';
+  else if (/\b(semin[áa]rio|apresenta[çc][ãa]o)\b/.test(lower)) tipo = 'seminario';
+  else if (/\b(lista|exerc[íi]cios?)\b/.test(lower)) tipo = 'lista';
+  else if (/\b(leitura|ler|cap[íi]tulo)\b/.test(lower)) tipo = 'leitura';
+
+  return {
+    disciplinaId: disc ? disc.id : null,
+    tipo
+  };
+}
+
 export function syncPreviewAcademicSelects(demanda) {
   const sDisc = document.getElementById('stu-edit-disciplina');
   const sTipo = document.getElementById('stu-edit-tipo');
@@ -222,6 +261,9 @@ export function syncPreviewAcademicSelects(demanda) {
   }
   sDisc.value = demanda?.disciplinaId || '';
   sTipo.value = demanda?.tipo || '';
+  if (sTipo.value === 'prova') {
+    formatTitleAsExam();
+  }
 }
 
 export function readPreviewAcademicFields() {
@@ -335,12 +377,21 @@ function openDisciplinesDialog() {
       }
     }
 
-    // Nova disciplina
+    // Nova disciplina (com qtdProvas, média mínima e prova final)
     const formDisc = createEl('div', 'form-grid-2');
     const inpNome = createEl('input', 'input-control');
     inpNome.placeholder = 'Nome da disciplina';
     const inpProf = createEl('input', 'input-control');
     inpProf.placeholder = 'Professor / Sala (opcional)';
+    const inpQtdProvas = createEl('input', 'input-control');
+    inpQtdProvas.type = 'number';
+    inpQtdProvas.min = '1';
+    inpQtdProvas.max = '12';
+    inpQtdProvas.placeholder = 'Qtd. de provas (ex: 4)';
+    const inpNotaMin = createEl('input', 'input-control');
+    inpNotaMin.type = 'number';
+    inpNotaMin.step = '0.5';
+    inpNotaMin.placeholder = 'Média p/ passar (padrão 7)';
     const inpFaltasMax = createEl('input', 'input-control');
     inpFaltasMax.type = 'number';
     inpFaltasMax.placeholder = 'Máx. faltas (opcional)';
@@ -350,6 +401,12 @@ function openDisciplinesDialog() {
       o.value = c;
       selCor.appendChild(o);
     });
+    const chkFinalLbl = createEl('label', 'switch-row');
+    const chkFinal = createEl('input');
+    chkFinal.type = 'checkbox';
+    chkFinal.checked = true;
+    chkFinalLbl.append(createEl('span', '', 'Tem prova final?'), chkFinal);
+
     const addDiscBtn = createEl('button', 'btn btn-primary btn-sm', 'Adicionar disciplina');
     addDiscBtn.type = 'button';
     addDiscBtn.addEventListener('click', async () => {
@@ -358,16 +415,19 @@ function openDisciplinesDialog() {
         nome: inpNome.value.trim(),
         cor: selCor.value,
         professor: inpProf.value.trim(),
+        qtdProvas: Number(inpQtdProvas.value) || 2,
+        temFinal: chkFinal.checked,
+        notaMinima: Number(inpNotaMin.value) || 7,
         faltasMax: Number(inpFaltasMax.value) || 0,
         semestreId: studentState.activeSemestreId
       });
       studentState.disciplinas.push(nova);
       renderContent();
     });
-    formDisc.append(inpNome, inpProf, inpFaltasMax, selCor);
-    body.append(formDisc, addDiscBtn);
+    formDisc.append(inpNome, inpProf, inpQtdProvas, inpNotaMin, inpFaltasMax, selCor);
+    body.append(formDisc, chkFinalLbl, addDiscBtn);
 
-    // Lista de disciplinas com Notas e Faltas
+    // Lista de disciplinas com Notas (provas + final) e Faltas
     const discsVisiveis = studentState.disciplinas.filter(
       (d) => studentState.activeSemestreId === 'geral' || d.semestreId === studentState.activeSemestreId
     );
@@ -378,16 +438,35 @@ function openDisciplinesDialog() {
       card.appendChild(title);
 
       if (moduloAtivo('notas')) {
-        const calc = computeWeightedGrade(d.avaliacoes, d.notaMinima ?? 7);
-        const notaTxt = calc.media !== null
-          ? `Média: ${calc.media} (precisa ~${calc.precisaProxima} na próxima para ${d.notaMinima ?? 7})`
-          : 'Sem notas lançadas';
+        const calc = computeWeightedGrade(d.avaliacoes, {
+          notaMinima: d.notaMinima ?? 7,
+          qtdProvas: d.qtdProvas ?? 2,
+          temFinal: d.temFinal !== undefined ? d.temFinal : true,
+          notaMinimaFinal: d.notaMinimaFinal ?? 5
+        });
+
+        let notaTxt = `Configurado: ${calc.qtdProvas} prova(s)${calc.temFinal ? ' + Final' : ''} (média ${d.notaMinima ?? 7}). Nenhuma nota lançada.`;
+        if (calc.mediaAtual !== null) {
+          notaTxt = `Média atual: ${calc.mediaAtual} (${calc.preenchidas}/${calc.qtdProvas} provas). `;
+          if (calc.situacao === 'aprovado_direto') {
+            notaTxt += 'Aprovado direto!';
+          } else if (calc.faltamProvas > 0) {
+            notaTxt += calc.precisaNasRestantes <= 10
+              ? `Faltam ${calc.faltamProvas}: precisa de média ${calc.precisaNasRestantes} nas restantes para passar direto.`
+              : `Faltam ${calc.faltamProvas}: média >10 para passar direto${calc.precisaNaFinal !== null ? ` (na final precisaria de ~${calc.precisaNaFinal})` : ''}.`;
+          } else if (calc.situacao === 'vai_para_final') {
+            notaTxt += `Vai para a Final: precisa tirar ${calc.precisaNaFinal} na prova final.`;
+          } else {
+            notaTxt += 'Abaixo da média configurada.';
+          }
+        }
+
         const notaRow = createEl('div', 'info-note', notaTxt);
-        const addNotaBtn = createEl('button', 'btn btn-ghost btn-sm', '+ Nota');
+        const addNotaBtn = createEl('button', 'btn btn-ghost btn-sm', '+ Lançar nota');
         addNotaBtn.type = 'button';
         addNotaBtn.addEventListener('click', async () => {
-          const n = window.prompt('Nota obtida (ex: 8.5):');
-          const p = window.prompt('Peso da avaliação (ex: 1 ou 2):', '1');
+          const n = window.prompt(`Nota da prova ${(d.avaliacoes?.length || 0) + 1} (ex: 8.5):`);
+          const p = window.prompt('Peso da avaliação (ex: 1):', '1');
           if (n === null || n === '') return;
           const avals = [...(d.avaliacoes || []), { nota: Number(n), peso: Number(p) || 1 }];
           await updateDisciplina(wsId, d.id, { avaliacoes: avals });
@@ -421,7 +500,7 @@ function openDisciplinesDialog() {
       body.appendChild(card);
     }
 
-    // Grade horária semanal (7 colunas simplificada)
+    // Grade horária semanal (múltiplos dias da semana por disciplina)
     const hGrade = createEl('h3', '', 'Grade horária semanal');
     const gradeForm = createEl('div', 'form-grid-2');
     const gDisc = createEl('select', 'select-control');
@@ -430,33 +509,47 @@ function openDisciplinesDialog() {
       o.value = d.id;
       gDisc.appendChild(o);
     }
-    const gDia = createEl('select', 'select-control');
-    DIAS_SEMANA.forEach((nome, idx) => {
-      const o = createEl('option', '', nome);
-      o.value = String(idx);
-      gDia.appendChild(o);
-    });
     const gIni = createEl('input', 'input-control');
     gIni.type = 'time';
     gIni.value = '08:00';
     const gFim = createEl('input', 'input-control');
     gFim.type = 'time';
     gFim.value = '10:00';
-    const addAulaBtn = createEl('button', 'btn btn-secondary btn-sm', 'Adicionar aula à grade');
+
+    const diasWrap = createEl('div', 'tag-filter-row');
+    const selectedDays = new Set();
+    DIAS_SEMANA.forEach((nome, idx) => {
+      const chip = createEl('button', 'tag-chip', nome.slice(0, 3));
+      chip.type = 'button';
+      chip.setAttribute('aria-pressed', 'false');
+      chip.addEventListener('click', () => {
+        if (selectedDays.has(idx)) selectedDays.delete(idx);
+        else selectedDays.add(idx);
+        chip.setAttribute('aria-pressed', String(selectedDays.has(idx)));
+      });
+      diasWrap.appendChild(chip);
+    });
+
+    const addAulaBtn = createEl('button', 'btn btn-secondary btn-sm', 'Adicionar aulas nos dias selecionados');
     addAulaBtn.type = 'button';
     addAulaBtn.addEventListener('click', async () => {
-      if (!gDisc.value) return;
-      const novaAula = await createAulaGrade(wsId, {
-        disciplinaId: gDisc.value,
-        diaSemana: Number(gDia.value),
-        inicio: gIni.value,
-        fim: gFim.value
-      });
-      studentState.grade.push(novaAula);
+      if (!gDisc.value || selectedDays.size === 0) {
+        showToast('Selecione a disciplina e pelo menos um dia da semana.');
+        return;
+      }
+      for (const diaSemana of selectedDays) {
+        const novaAula = await createAulaGrade(wsId, {
+          disciplinaId: gDisc.value,
+          diaSemana,
+          inicio: gIni.value,
+          fim: gFim.value
+        });
+        studentState.grade.push(novaAula);
+      }
       renderContent();
     });
-    gradeForm.append(gDisc, gDia, gIni, gFim);
-    body.append(hGrade, gradeForm, addAulaBtn);
+    gradeForm.append(gDisc, gIni, gFim);
+    body.append(hGrade, gradeForm, diasWrap, addAulaBtn);
 
     const discMap = new Map(studentState.disciplinas.map((d) => [d.id, d]));
     for (const aula of studentState.grade) {
@@ -555,10 +648,23 @@ function openPlannerDialog() {
   const printBtn = createEl('button', 'btn btn-primary', 'Imprimir / Salvar como PDF');
   printBtn.type = 'button';
   printBtn.addEventListener('click', () => {
+    let mount = document.getElementById('planner-print-mount');
+    if (mount) mount.remove();
+    mount = createEl('div');
+    mount.id = 'planner-print-mount';
+    mount.appendChild(previewSheet.cloneNode(true));
+    document.body.appendChild(mount);
+
+    const cleanup = () => {
+      document.body.classList.remove('is-printing-planner');
+      mount?.remove();
+    };
+    window.addEventListener('afterprint', cleanup, { once: true });
+
     // Chamada síncrona para compatibilidade com Safari iOS
     document.body.classList.add('is-printing-planner');
     window.print();
-    setTimeout(() => document.body.classList.remove('is-printing-planner'), 500);
+    setTimeout(cleanup, 1500);
   });
 
   const closeBtn = createEl('button', 'btn btn-secondary', 'Fechar');

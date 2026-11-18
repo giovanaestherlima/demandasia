@@ -66,7 +66,7 @@
       </div>
 
       <nav class="header-subbar" aria-label="Ações rápidas">
-        <button id="morning-btn" type="button" class="subbar-pill hidden" title="Resumo Bom Dia">Bom dia</button>
+        <button id="morning-btn" type="button" class="subbar-pill hidden" title="Resumo Olá">Olá</button>
         <button id="metrics-btn" type="button" class="subbar-pill hidden" title="Métricas e exportação">Métricas</button>
         <button id="shortcuts-btn" type="button" class="subbar-pill" aria-label="Atalhos de teclado" title="Atalhos (?)">? Atalhos</button>
         <button id="student-mode-btn" type="button" class="subbar-pill hidden">Pauta para estudantes</button>
@@ -103,22 +103,29 @@
 
     <!-- Aplicação Principal -->
     <main id="app-view" class="hidden" style="display:flex;flex-direction:column;gap:1.25rem;">
-      <!-- Painel Atenção -->
-      <section id="attention-panel" class="attention-panel is-calm" aria-labelledby="attention-title">
-        <div class="attention-header">
-          <div class="attention-title-wrap">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-            </svg>
-            <h2 id="attention-title">Atenção</h2>
+      <!-- Painel Atenção retrátil (botão laranjinha compacto) -->
+      <section aria-labelledby="attention-toggle-btn">
+        <button id="attention-toggle-btn" type="button" class="attention-toggle-pill" aria-expanded="false" aria-controls="attention-panel">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+          <span id="attention-toggle-label">Atenção</span>
+          <span aria-hidden="true">▾</span>
+        </button>
+
+        <div id="attention-panel" class="attention-panel is-calm hidden" style="margin-top:0.55rem;">
+          <div class="attention-header">
+            <div class="attention-title-wrap">
+              <h2 id="attention-title">Atenção</h2>
+            </div>
+            <div style="display:flex;gap:0.4rem;">
+              <button id="speak-summary-btn" type="button" class="btn btn-secondary btn-sm">Ouvir resumo</button>
+              <button id="mute-summary-btn" type="button" class="btn btn-ghost btn-sm" aria-pressed="false">Som ativo</button>
+            </div>
           </div>
-          <div style="display:flex;gap:0.4rem;">
-            <button id="speak-summary-btn" type="button" class="btn btn-secondary btn-sm">Ouvir resumo</button>
-            <button id="mute-summary-btn" type="button" class="btn btn-ghost btn-sm" aria-pressed="false">Som ativo</button>
-          </div>
+          <p id="attention-summary" class="attention-summary">Carregando suas demandas...</p>
+          <ul id="attention-list" class="attention-list hidden"></ul>
         </div>
-        <p id="attention-summary" class="attention-summary">Carregando suas demandas...</p>
-        <ul id="attention-list" class="attention-list hidden"></ul>
       </section>
 
       <!-- Área de Captura (Voz, Texto, Comandos e Lote) -->
@@ -147,7 +154,7 @@
             <p id="voice-live-text" class="voice-live-text"></p>
             <div class="voice-live-actions">
               <button id="voice-cancel-btn" type="button" class="btn btn-secondary btn-sm">Cancelar</button>
-              <button id="voice-finish-btn" type="button" class="btn btn-primary btn-sm">Enviar agora</button>
+              <button id="voice-finish-btn" type="button" class="btn btn-primary btn-sm">Organizar</button>
             </div>
           </div>
         </div>
@@ -337,10 +344,10 @@
     </div>
   </dialog>
 
-  <!-- Diálogo Bom Dia -->
+  <!-- Diálogo Olá -->
   <dialog id="morning-dialog" aria-labelledby="morning-dialog-title">
     <div class="dialog-header">
-      <h2 id="morning-dialog-title">Bom dia</h2>
+      <h2 id="morning-dialog-title">Olá!</h2>
       <button type="button" id="morning-close-x" class="btn btn-ghost btn-sm" aria-label="Fechar">✕</button>
     </div>
     <div class="dialog-body">

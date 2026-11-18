@@ -90,9 +90,9 @@ export function buildMorningSummary(demandas) {
 
   const partes = [];
   if (pendentes.length === 0) {
-    partes.push('Bom dia! Nenhuma pendência ativa no momento. Respire tranquilo.');
+    partes.push('Olá! Nenhuma pendência ativa no momento. Respire tranquilo.');
   } else {
-    partes.push(`Bom dia! Você tem ${pendentes.length} pendência(s) ativa(s).`);
+    partes.push(`Olá! Você tem ${pendentes.length} pendência(s) ativa(s).`);
     if (hoje.length > 0) {
       partes.push(`${hoje.length} vence(m) hoje.`);
     }

@@ -266,22 +266,42 @@ export function renderPlannerPreview(container, { demandas, disciplinas, grade, 
     const year = hoje.getFullYear();
     const month = hoje.getMonth();
     const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const monthPrefix = `${year}-${String(month + 1).padStart(2, '0')}-`;
 
     for (let day = 1; day <= daysInMonth; day += 1) {
-      const iso = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const iso = `${monthPrefix}${String(day).padStart(2, '0')}`;
       const cell = document.createElement('div');
       cell.className = 'planner-month-cell';
       escapeElText(cell, 'strong', String(day));
       const items = filtradas.filter((d) => d.prazo === iso);
-      for (const it of items.slice(0, 2)) {
-        const line = escapeElText(cell, 'div', `• ${it.titulo.slice(0, 18)}`);
+      for (const it of items.slice(0, 3)) {
+        const line = escapeElText(cell, 'div', `• ${it.titulo}`, 'planner-month-item');
         const disc = it.disciplinaId ? discMap.get(it.disciplinaId) : null;
         if (!isBW && disc?.cor) line.style.color = disc.cor;
       }
-      if (items.length > 2) escapeElText(cell, 'div', `+${items.length - 2}`);
+      if (items.length > 3) escapeElText(cell, 'div', `+${items.length - 3}`);
       grid.appendChild(cell);
     }
     page.appendChild(grid);
+
+    // Lista completa do mês para leitura confortável sem nenhum corte
+    const doMes = filtradas
+      .filter((d) => d.prazo && d.prazo.startsWith(monthPrefix))
+      .sort((a, b) => a.prazo.localeCompare(b.prazo));
+    if (doMes.length > 0) {
+      const listWrap = document.createElement('div');
+      listWrap.className = 'planner-month-list';
+      escapeElText(listWrap, 'strong', 'Prazos e entregas do mês:');
+      for (const it of doMes) {
+        const disc = it.disciplinaId ? discMap.get(it.disciplinaId) : null;
+        const [y, m, d] = it.prazo.split('-');
+        const tipoTxt = it.tipo ? `[${it.tipo.toUpperCase()}] ` : '';
+        const discTxt = disc ? `${disc.nome} — ` : '';
+        escapeElText(listWrap, 'div', `${d}/${m}/${y}: ${tipoTxt}${discTxt}${it.titulo}`);
+      }
+      page.appendChild(listWrap);
+    }
+
     buildFooter(page, opts, mesNome, pageNum++);
     container.appendChild(page);
   };

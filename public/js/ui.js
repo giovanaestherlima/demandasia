@@ -98,6 +98,8 @@ export function renderLoadingSkeletons(container) {
 }
 
 export function renderAttentionPanel(demandas, prefs) {
+  const toggleBtn = document.getElementById('attention-toggle-btn');
+  const toggleLabel = document.getElementById('attention-toggle-label');
   const panel = document.getElementById('attention-panel');
   const summaryEl = document.getElementById('attention-summary');
   const listEl = document.getElementById('attention-list');
@@ -107,19 +109,27 @@ export function renderAttentionPanel(demandas, prefs) {
   listEl.replaceChildren();
 
   if (pendingCount === 0) {
+    toggleBtn?.classList.remove('is-critical');
+    toggleBtn?.classList.add('is-calm');
+    if (toggleLabel) toggleLabel.textContent = 'Atenção • Tudo em ordem';
     panel.classList.remove('is-critical');
     panel.classList.add('is-calm');
     listEl.classList.add('hidden');
     return;
   }
 
+  toggleBtn?.classList.remove('is-calm');
   panel.classList.remove('is-calm');
 
   const pendentesAtivas = getPendingOldestFirst(demandas).filter((d) => !isSnoozed(d));
   const alertas = pendentesAtivas.filter((d) => getUrgencyLevel(d, prefs) !== 'normal');
   const hasCritical = alertas.some((d) => getUrgencyLevel(d, prefs) === 'critical');
 
+  toggleBtn?.classList.toggle('is-critical', hasCritical);
   panel.classList.toggle('is-critical', hasCritical);
+  if (toggleLabel) {
+    toggleLabel.textContent = `Atenção • ${pendingCount} pendente${pendingCount > 1 ? 's' : ''}`;
+  }
 
   const destaque = (alertas.length > 0 ? alertas : pendentesAtivas).slice(0, 4);
   listEl.classList.remove('hidden');

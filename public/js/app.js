@@ -591,8 +591,14 @@ async function processRawInput(textoLivre, origem) {
   const localDraft = buildFallbackDemand(texto);
   const localMs = Math.max(1, Math.round(performance.now() - t0));
 
+  const acadDetect =
+    modoEstudanteAtivo() && studentUiMod?.autoDetectAcademicFields
+      ? studentUiMod.autoDetectAcademicFields(texto)
+      : {};
+
   const rascunhoBase = {
     ...localDraft,
+    ...acadDetect,
     status: 'pendente',
     origem,
     textoOriginal: texto
@@ -971,6 +977,13 @@ function bindEvents() {
     } catch (err) {
       showToast(err.message || 'Falha ao entrar com Google.');
     }
+  });
+
+  const attentionToggleBtn = document.getElementById('attention-toggle-btn');
+  const attentionPanel = document.getElementById('attention-panel');
+  attentionToggleBtn?.addEventListener('click', () => {
+    const isHidden = attentionPanel.classList.toggle('hidden');
+    attentionToggleBtn.setAttribute('aria-expanded', String(!isHidden));
   });
 
   els.logoutBtn.addEventListener('click', async () => {
