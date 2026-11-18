@@ -51,11 +51,22 @@ rules_version = '2';
 //   - titulo: string (1..120), descricao: string (0..5000)
 //   - prioridade: 'baixa' | 'media' | 'alta' | 'urgente'
 //   - status: 'pendente' | 'em_andamento' | 'concluida'
-//   - origem: 'voz' | 'texto'
+//   - origem: 'voz' | 'texto' | 'reuniao'
 //   - criadoPorUid: string (obrigatório, imutável)
 //   - criadoEm: timestamp (obrigatório, imutável)
 //   - atualizadoEm: timestamp (obrigatório)
 //   - Campos acadêmicos opcionais (Modo Estudante): disciplinaId, semestreId, tipo, estimativaMin, peso
+//   - Campos corporativos opcionais (Modo Corporativo): reuniaoId, reuniaoTitulo, concluidoPorUid, concluidoPorNome
+//
+// Coleção: workspaces/{wsId}/reunioes/{reuniaoId}
+//   - titulo: string (obrigatório, 1..120), ata: string (obrigatório, 0..20000)
+//   - origem: 'voz' | 'colado' | 'digitada' (na criação)
+//   - criadoPorUid: string (obrigatório, imutável), criadoEm: timestamp (imutável)
+//
+// Coleção: workspaces/{wsId}/atividade/{atividadeId}
+//   - autorUid: string (obrigatório, == request.auth.uid na criação)
+//   - tipo: string (obrigatório, <= 40)
+//   - Append-only (sem update/delete)
 //
 // Coleção: workspaces/{wsId}/disciplinas/{discId}
 //   - nome: string (1..80), cor: string (<= 20), semestreId: string (<= 60)
@@ -407,7 +418,7 @@ service cloud.firestore {
       ];
 
       return hasRequiredFields(requiredFields) &&
-             data.keys().size() <= 32 &&
+             data.keys().size() <= 36 &&
              data.titulo is string &&
              data.titulo.size() >= 1 &&
              data.titulo.size() <= 120 &&
@@ -419,7 +430,7 @@ service cloud.firestore {
              data.status is string &&
              data.status in ['pendente', 'em_andamento', 'concluida'] &&
              data.origem is string &&
-             data.origem in ['voz', 'texto'] &&
+             data.origem in ['voz', 'texto', 'reuniao'] &&
              data.criadoPorUid is string &&
              data.criadoPorUid.size() >= 1 &&
              data.criadoPorUid.size() <= 128 &&
@@ -449,7 +460,12 @@ service cloud.firestore {
              (!('semestreId' in data) || data.semestreId == null || (data.semestreId is string && data.semestreId.size() <= 60)) &&
              (!('tipo' in data) || data.tipo == null || (data.tipo is string && data.tipo in ['prova', 'trabalho', 'leitura', 'seminario', 'lista', 'estudo', 'outro'])) &&
              (!('estimativaMin' in data) || data.estimativaMin == null || (data.estimativaMin is number && data.estimativaMin >= 0 && data.estimativaMin <= 1440)) &&
-             (!('peso' in data) || data.peso == null || (data.peso is number && data.peso >= 0 && data.peso <= 1000));
+             (!('peso' in data) || data.peso == null || (data.peso is number && data.peso >= 0 && data.peso <= 1000)) &&
+             // Campos corporativos opcionais (Modo Corporativo)
+             (!('reuniaoId' in data) || data.reuniaoId == null || (data.reuniaoId is string && data.reuniaoId.size() <= 60)) &&
+             (!('reuniaoTitulo' in data) || data.reuniaoTitulo == null || (data.reuniaoTitulo is string && data.reuniaoTitulo.size() <= 120)) &&
+             (!('concluidoPorUid' in data) || data.concluidoPorUid == null || (data.concluidoPorUid is string && data.concluidoPorUid.size() <= 128)) &&
+             (!('concluidoPorNome' in data) || data.concluidoPorNome == null || (data.concluidoPorNome is string && data.concluidoPorNome.size() <= 120));
     }
 
     // Valida disciplina do Modo Estudante em workspaces/{wsId}/disciplinas/{discId}
@@ -532,6 +548,26 @@ service cloud.firestore {
              (!('acao' in data) || (data.acao is string && data.acao.size() >= 1 && data.acao.size() <= 80)) &&
              (!('detalhe' in data) || data.detalhe == null || (data.detalhe is string && data.detalhe.size() <= 1000)) &&
              (!('criadoEm' in data) || data.criadoEm is timestamp);
+    }
+
+    // Valida ata de reunião do Modo Corporativo em workspaces/{wsId}/reunioes/{reuniaoId}
+    function isValidReuniao(data) {
+      return data.keys().size() <= 20 &&
+             data.titulo is string &&
+             data.titulo.size() >= 1 &&
+             data.titulo.size() <= 120 &&
+             data.ata is string &&
+             data.ata.size() <= 20000;
+    }
+
+    // Valida registro de atividade recente (append-only) em workspaces/{wsId}/atividade/{atividadeId}
+    function isValidAtividade(data) {
+      return data.keys().size() <= 15 &&
+             data.autorUid is string &&
+             data.autorUid.size() >= 1 &&
+             data.autorUid.size() <= 128 &&
+             data.tipo is string &&
+             data.tipo.size() <= 40;
     }
 
     // Valida criação de convite
@@ -779,6 +815,41 @@ service cloud.firestore {
 
         // Exclusão: editor ou admin (custo: até 2 leituras)
         allow delete: if isWsEditorOrAdmin(wsId);
+      }
+
+      // Reuniões e atas do Modo Corporativo
+      match /reunioes/{reuniaoId} {
+        // Leitura: qualquer membro do workspace (custo: 1 leitura)
+        allow read: if isWsMember(wsId);
+
+        // Criação: editor ou admin; criadoPorUid deve corresponder ao usuário autenticado e origem válida (custo: até 2 leituras)
+        allow create: if isWsEditorOrAdmin(wsId) &&
+                         request.resource.data.criadoPorUid == request.auth.uid &&
+                         request.resource.data.origem in ['voz', 'colado', 'digitada'] &&
+                         isValidReuniao(request.resource.data);
+
+        // Atualização: editor ou admin; criadoPorUid e criadoEm são imutáveis (custo: até 2 leituras)
+        allow update: if isWsEditorOrAdmin(wsId) &&
+                         request.resource.data.criadoPorUid == resource.data.criadoPorUid &&
+                         request.resource.data.criadoEm == resource.data.criadoEm &&
+                         isValidReuniao(request.resource.data);
+
+        // Exclusão: editor ou admin (custo: até 2 leituras)
+        allow delete: if isWsEditorOrAdmin(wsId);
+      }
+
+      // Feed de atividade recente do workspace (append-only, ex.: consulta com limit(30))
+      match /atividade/{atividadeId} {
+        // Leitura: qualquer membro do workspace (custo: 1 leitura)
+        allow read: if isWsMember(wsId);
+
+        // Criação: editor ou admin registrando evento em seu próprio autorUid (custo: até 2 leituras)
+        allow create: if isWsEditorOrAdmin(wsId) &&
+                         request.resource.data.autorUid == request.auth.uid &&
+                         isValidAtividade(request.resource.data);
+
+        // Atividades são imutáveis (somente inclusão)
+        allow update, delete: if false;
       }
     }
 

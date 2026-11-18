@@ -68,7 +68,7 @@
       <nav class="header-subbar" aria-label="Ações rápidas">
         <button id="morning-btn" type="button" class="subbar-pill hidden" title="Resumo Olá">Olá</button>
         <button id="metrics-btn" type="button" class="subbar-pill hidden" title="Métricas e exportação">Métricas</button>
-        <button id="student-mode-btn" type="button" class="subbar-pill hidden">Pauta para estudantes</button>
+        <button id="modes-btn" type="button" class="subbar-pill hidden">Modos do Pauta</button>
         <button id="install-app-btn" type="button" class="subbar-pill subbar-pill-primary hidden">Instalar app</button>
       </nav>
     </header>
@@ -79,13 +79,15 @@
       <button id="ios-install-dismiss" type="button" class="btn btn-ghost btn-sm" aria-label="Dispensar dica">✕</button>
     </div>
 
-    <!-- Cartão de convite único pós-login para o Modo Estudante -->
-    <div id="student-invite-banner" class="install-banner hidden" role="region" aria-label="Convite Pauta para estudantes">
-      <span>Estudando este semestre? Ative o <strong>Pauta para estudantes</strong> (planner em PDF, disciplinas e modo foco).</span>
+    <!-- Cartão de convite único pós-login: Como você usa o Pauta? -->
+    <div id="unified-invite-banner" class="install-banner hidden" role="region" aria-label="Como você usa o Pauta?">
+      <span><strong>Como você usa o Pauta?</strong> Escolha um modo ou continue no Simples:</span>
       <div style="display:flex;gap:0.35rem;flex-wrap:wrap;">
-        <button id="student-invite-accept" type="button" class="btn btn-primary btn-sm">Conhecer</button>
-        <button id="student-invite-later" type="button" class="btn btn-ghost btn-sm">Agora não</button>
-        <button id="student-invite-never" type="button" class="btn btn-ghost btn-sm">Não mostrar de novo</button>
+        <button id="invite-mode-simples" type="button" class="btn btn-ghost btn-sm">Simples</button>
+        <button id="invite-mode-estudante" type="button" class="btn btn-secondary btn-sm">Estudante</button>
+        <button id="invite-mode-corporativo" type="button" class="btn btn-primary btn-sm">Corporativo</button>
+        <button id="invite-mode-later" type="button" class="btn btn-ghost btn-sm">Agora não</button>
+        <button id="invite-mode-never" type="button" class="btn btn-ghost btn-sm">Não mostrar de novo</button>
       </div>
     </div>
 
@@ -328,6 +330,9 @@
           </div>
         </section>
 
+        <!-- Ações de link direto (Etapa C1, visível se módulo Links ativo) -->
+        <div id="demand-link-actions" class="hidden" style="display:flex;gap:0.4rem;flex-wrap:wrap;"></div>
+
         <!-- Histórico da demanda (visível na edição) -->
         <details id="history-details" class="hidden">
           <summary style="cursor:pointer;font-size:0.85rem;color:var(--text-muted);">Histórico da demanda</summary>
@@ -524,9 +529,10 @@
         </div>
 
         <div id="cfg-student-wrap" class="switch-row">
-          <span>Pauta para estudantes</span>
-          <button type="button" id="cfg-student-btn" class="btn btn-secondary btn-sm">Ativar / Gerenciar</button>
+          <span>Modos do Pauta (Simples, Estudante, Corporativo)</span>
+          <button type="button" id="cfg-modes-btn" class="btn btn-secondary btn-sm">Gerenciar modos</button>
         </div>
+        <p class="info-note">Privacidade: seus dados ficam no Firebase do administrador deste projeto; em espaços compartilhados, os membros veem as demandas e comentários do espaço; textos enviados para a IA organizar ou extrair tarefas são processados pelo Google Gemini. Você pode excluir suas demandas e reuniões a qualquer momento.</p>
 
         <div id="cfg-delete-legacy-wrap" class="switch-row hidden">
           <span>Dados antigos migrados</span>
@@ -698,9 +704,85 @@
     </div>
   </dialog>
 
+  <!-- Diálogo Modos do Pauta (Simples, Estudante, Corporativo) -->
+  <dialog id="modes-dialog" aria-labelledby="modes-dialog-title">
+    <div class="dialog-header">
+      <h2 id="modes-dialog-title">Modos do Pauta</h2>
+      <button type="button" id="modes-close-x" class="btn btn-ghost btn-sm" aria-label="Fechar">✕</button>
+    </div>
+    <div class="dialog-body" style="gap:0.75rem;">
+      <div style="border:1px solid var(--border);border-radius:var(--radius-md);padding:0.75rem;background:var(--surface);">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;">
+          <strong>Simples</strong>
+          <span id="mode-simples-badge" class="badge badge-primary">Atual</span>
+        </div>
+        <p class="info-note" style="margin:0.3rem 0 0;">O Pauta como sempre foi: demandas por voz/texto, prazos, espaços compartilhados e alertas.</p>
+      </div>
+
+      <div style="border:1px solid var(--border);border-radius:var(--radius-md);padding:0.75rem;background:var(--surface);">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;">
+          <strong>Estudante</strong>
+          <span id="mode-estudante-badge" class="badge">Desligado</span>
+        </div>
+        <p class="info-note" style="margin:0.3rem 0 0.5rem;">Planner em PDF, disciplinas, grade, calculadora de notas, faltas e modo foco.</p>
+        <div style="display:flex;gap:0.4rem;flex-wrap:wrap;">
+          <button type="button" id="mode-estudante-action" class="btn btn-secondary btn-sm">Ativar / Configurar</button>
+        </div>
+      </div>
+
+      <div style="border:1px solid var(--border);border-radius:var(--radius-md);padding:0.75rem;background:var(--surface);">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;">
+          <strong>Corporativo</strong>
+          <span id="mode-corp-badge" class="badge">Desligado</span>
+        </div>
+        <p class="info-note" style="margin:0.3rem 0 0.5rem;">Atas e reuniões, extração de tarefas por IA, histórico, relatório semanal e links diretos.</p>
+        <div style="display:flex;gap:0.4rem;flex-wrap:wrap;">
+          <button type="button" id="mode-corp-action" class="btn btn-primary btn-sm">Ativar / Configurar</button>
+        </div>
+      </div>
+    </div>
+    <div class="dialog-footer">
+      <button type="button" id="modes-close-btn" class="btn btn-primary">Fechar</button>
+    </div>
+  </dialog>
+
+  <!-- Diálogo Ativar o Pauta para o trabalho (Etapa C0) -->
+  <dialog id="corp-activate-dialog" aria-labelledby="corp-activate-title">
+    <div class="dialog-header">
+      <h2 id="corp-activate-title">Ativar o Pauta para o trabalho</h2>
+      <button type="button" id="corp-activate-close-x" class="btn btn-ghost btn-sm" aria-label="Fechar">✕</button>
+    </div>
+    <div class="dialog-body">
+      <p>Recursos para reuniões, atas, acompanhamento da equipe e relatórios — sem complicar o uso diário.</p>
+      <ul style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:0.3rem;font-size:0.86rem;color:var(--text-muted);">
+        <li>— Atas de reunião e tarefas por voz após a reunião</li>
+        <li>— Colar ata ou e-mail para extrair tarefas com prévia</li>
+        <li>— Relatório semanal em texto (e-mail, WhatsApp, Markdown)</li>
+        <li>— Histórico de quem fez o quê e link direto para demandas</li>
+      </ul>
+      <label class="switch-row">
+        <strong>Ativar Modo Corporativo</strong>
+        <input id="corp-master-toggle" type="checkbox" checked>
+      </label>
+      <div id="corp-modules-box" style="display:flex;flex-direction:column;gap:0.45rem;padding-left:0.5rem;border-left:2px solid var(--border-strong);">
+        <label class="switch-row"><span>Reuniões, atas e extração de tarefas</span><input type="checkbox" data-corp-mod="reunioes" checked></label>
+        <label class="switch-row"><span>Histórico detalhado e atividade recente</span><input type="checkbox" data-corp-mod="historico" checked></label>
+        <label class="switch-row"><span>Relatório semanal em texto</span><input type="checkbox" data-corp-mod="relatorio" checked></label>
+        <label class="switch-row"><span>Links diretos para demandas</span><input type="checkbox" data-corp-mod="links" checked></label>
+      </div>
+      <p class="ai-status-bar is-warn" style="margin:0;">Textos que você falar ou colar para a IA organizar são processados pela IA do Google (Gemini). Evite informações muito sensíveis.</p>
+      <p class="info-note">Você pode desativar quando quiser. Seus dados do modo corporativo ficam guardados.</p>
+      <p id="corp-activate-error" class="info-note hidden" role="alert"></p>
+    </div>
+    <div class="dialog-footer">
+      <button type="button" id="corp-activate-cancel" class="btn btn-secondary">Agora não</button>
+      <button type="button" id="corp-activate-save" class="btn btn-primary">Ativar</button>
+    </div>
+  </dialog>
+
   <!-- Notificações in-app (toasts) -->
   <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
 
-  <script type="module" src="./js/app.js?v=6"></script>
+  <script type="module" src="./js/app.js?v=7"></script>
 </body>
 </html>

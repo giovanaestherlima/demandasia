@@ -78,6 +78,21 @@ import {
   syncStudentConfigFromProfile
 } from './modo-estudante.js?v=5';
 import {
+  captureDirectDemandUrlParams,
+  captureWorkUrlParam,
+  clearDirectDemandUrlParams,
+  clearWorkUrlParam,
+  dismissUnifiedInviteLocal,
+  getCorpConfig,
+  isUnifiedInviteDismissed,
+  loadCorporativoModule,
+  modoCorporativoAtivo,
+  modoSimplesAtivo,
+  moduloAtivo,
+  saveCorpConfig,
+  syncCorpConfigFromProfile
+} from './modos.js?v=1';
+import {
   applyTheme,
   filterAndSortDemandas,
   formatDateBR,
@@ -264,12 +279,32 @@ const els = {
   migrationDeleteLegacyBtn: document.getElementById('migration-delete-legacy-btn'),
   migrationCloseBtn: document.getElementById('migration-close-btn'),
 
-  studentModeBtn: document.getElementById('student-mode-btn'),
-  studentInviteBanner: document.getElementById('student-invite-banner'),
-  studentInviteAccept: document.getElementById('student-invite-accept'),
-  studentInviteLater: document.getElementById('student-invite-later'),
-  studentInviteNever: document.getElementById('student-invite-never'),
-  cfgStudentBtn: document.getElementById('cfg-student-btn'),
+  modesBtn: document.getElementById('modes-btn'),
+  unifiedInviteBanner: document.getElementById('unified-invite-banner'),
+  inviteModeSimples: document.getElementById('invite-mode-simples'),
+  inviteModeEstudante: document.getElementById('invite-mode-estudante'),
+  inviteModeCorporativo: document.getElementById('invite-mode-corporativo'),
+  inviteModeLater: document.getElementById('invite-mode-later'),
+  inviteModeNever: document.getElementById('invite-mode-never'),
+  cfgModesBtn: document.getElementById('cfg-modes-btn'),
+  demandLinkActions: document.getElementById('demand-link-actions'),
+  modesDialog: document.getElementById('modes-dialog'),
+  modesCloseX: document.getElementById('modes-close-x'),
+  modesCloseBtn: document.getElementById('modes-close-btn'),
+  modeSimplesBadge: document.getElementById('mode-simples-badge'),
+  modeEstudanteBadge: document.getElementById('mode-estudante-badge'),
+  modeCorpBadge: document.getElementById('mode-corp-badge'),
+  modeEstudanteAction: document.getElementById('mode-estudante-action'),
+  modeCorpAction: document.getElementById('mode-corp-action'),
+
+  corpActivateDialog: document.getElementById('corp-activate-dialog'),
+  corpActivateCloseX: document.getElementById('corp-activate-close-x'),
+  corpActivateCancel: document.getElementById('corp-activate-cancel'),
+  corpActivateSave: document.getElementById('corp-activate-save'),
+  corpMasterToggle: document.getElementById('corp-master-toggle'),
+  corpModulesBox: document.getElementById('corp-modules-box'),
+  corpActivateError: document.getElementById('corp-activate-error'),
+
   studentActivateDialog: document.getElementById('student-activate-dialog'),
   studentActivateCloseX: document.getElementById('student-activate-close-x'),
   studentActivateCancel: document.getElementById('student-activate-cancel'),
@@ -333,11 +368,70 @@ const els = {
 };
 
 let studentUiMod = null;
+let corpUiMod = null;
+
+async function syncCorporativoModeLifecycle() {
+  if (!state.user) return;
+  const ativo = modoCorporativoAtivo();
+  if (!ativo) {
+    if (corpUiMod) {
+      corpUiMod.destroyCorporativoUI();
+    }
+    return;
+  }
+  els.unifiedInviteBanner?.classList.add('hidden');
+  corpUiMod = await loadCorporativoModule();
+  if (!corpUiMod) return;
+  corpUiMod.initCorporativoUI({
+    getUser: () => state.user,
+    getActiveWsId: () => state.activeWsId,
+    getActiveWorkspace: () => state.activeWorkspace,
+    getMembers: () => state.workspaceMembers,
+    getDemandas: () => state.demandas,
+    isReadOnlyRole,
+    showToast,
+    openManualDraft: (titulo, descricao) => {
+      openPreviewDialog({
+        titulo,
+        descricao,
+        prioridade: 'media',
+        prazo: null,
+        categoria: null,
+        status: 'pendente',
+        origem: 'texto',
+        textoOriginal: descricao
+      });
+    }
+  });
+}
+
+function openModesDialog() {
+  const simples = modoSimplesAtivo();
+  const est = modoEstudanteAtivo();
+  const corp = modoCorporativoAtivo();
+  els.modeSimplesBadge.textContent = simples ? 'Atual' : 'Base';
+  els.modeSimplesBadge.className = simples ? 'badge badge-primary' : 'badge';
+  els.modeEstudanteBadge.textContent = est ? 'Ativo' : 'Desligado';
+  els.modeEstudanteBadge.className = est ? 'badge badge-primary' : 'badge';
+  els.modeCorpBadge.textContent = corp ? 'Ativo' : 'Desligado';
+  els.modeCorpBadge.className = corp ? 'badge badge-primary' : 'badge';
+  els.modesDialog.showModal();
+}
+
+function openCorpActivateDialog() {
+  const cfg = getCorpConfig();
+  els.corpMasterToggle.checked = true;
+  els.corpModulesBox.querySelectorAll('input[data-corp-mod]').forEach((chk) => {
+    chk.checked = cfg.modulos?.[chk.dataset.corpMod] ?? true;
+  });
+  els.corpActivateError.classList.add('hidden');
+  els.corpActivateSave.textContent = cfg.ativo ? 'Salvar módulos' : 'Ativar';
+  els.corpActivateDialog.showModal();
+}
 
 async function syncStudentModeLifecycle() {
   if (!state.user) return;
   const ativo = modoEstudanteAtivo();
-  els.studentModeBtn.classList.toggle('hidden', ativo);
 
   if (!ativo) {
     if (studentUiMod) {
@@ -346,7 +440,7 @@ async function syncStudentModeLifecycle() {
     return;
   }
 
-  els.studentInviteBanner.classList.add('hidden');
+  els.unifiedInviteBanner?.classList.add('hidden');
   await loadEnabledStudentModules();
   if (!studentUiMod) {
     studentUiMod = await import('./estudante/estudante-ui.js?v=5');
@@ -499,9 +593,14 @@ function renderAll() {
       onToggleDone: handleToggleDone,
       onEdit: openEditDialog,
       onDelete: openDeleteDialog,
-      onSnooze: openSnoozeDialog
+      onSnooze: openSnoozeDialog,
+      onOpenMeeting: (reuniaoId) => corpUiMod?.openReunioesModal(reuniaoId)
     },
-    { readOnly: isReadOnlyRole() }
+    {
+      readOnly: isReadOnlyRole(),
+      showMeetingChip: moduloAtivo('reunioes'),
+      showCompletedBy: moduloAtivo('historico')
+    }
   );
 }
 
@@ -896,6 +995,7 @@ function openPreviewDialog(rascunho, localMs = 0) {
   els.previewDiscardBtn.textContent = 'Descartar';
   els.batchSaveAllBtn.classList.add('hidden');
   els.commentsSection?.classList.add('hidden');
+  els.demandLinkActions?.classList.add('hidden');
   setPreviewReadOnlyMode(false);
 
   fillPreviewFields(rascunho);
@@ -924,6 +1024,12 @@ function openEditDialog(demanda) {
 
   fillPreviewFields(demanda);
   checkDuplicateAndHistoryHints();
+
+  if (corpUiMod && moduloAtivo('links')) {
+    corpUiMod.renderDemandLinkControls(els.demandLinkActions, demanda);
+  } else {
+    els.demandLinkActions?.classList.add('hidden');
+  }
 
   if (els.commentsSection && state.activeWsId && demanda.id) {
     els.commentsSection.classList.remove('hidden');
@@ -1674,20 +1780,84 @@ function bindEvents() {
     }
   });
 
-  // Eventos do Ativador do Modo Estudante (Etapa E0)
-  els.studentModeBtn.addEventListener('click', openStudentActivateDialog);
-  els.cfgStudentBtn.addEventListener('click', () => {
+  // Eventos dos 3 Modos (Simples, Estudante, Corporativo) — Etapa C0
+  els.modesBtn?.addEventListener('click', openModesDialog);
+  els.cfgModesBtn?.addEventListener('click', () => {
     els.settingsDialog.close('cancel');
+    openModesDialog();
+  });
+  els.modesCloseX?.addEventListener('click', () => els.modesDialog.close());
+  els.modesCloseBtn?.addEventListener('click', () => els.modesDialog.close());
+  els.modeEstudanteAction?.addEventListener('click', () => {
+    els.modesDialog.close();
     openStudentActivateDialog();
   });
-  els.studentInviteAccept.addEventListener('click', openStudentActivateDialog);
-  els.studentInviteLater.addEventListener('click', () => {
-    els.studentInviteBanner.classList.add('hidden');
+  els.modeCorpAction?.addEventListener('click', () => {
+    els.modesDialog.close();
+    openCorpActivateDialog();
   });
-  els.studentInviteNever.addEventListener('click', async () => {
-    els.studentInviteBanner.classList.add('hidden');
+
+  els.inviteModeSimples?.addEventListener('click', () => {
+    els.unifiedInviteBanner.classList.add('hidden');
+    dismissUnifiedInviteLocal();
+  });
+  els.inviteModeEstudante?.addEventListener('click', openStudentActivateDialog);
+  els.inviteModeCorporativo?.addEventListener('click', openCorpActivateDialog);
+  els.inviteModeLater?.addEventListener('click', () => {
+    els.unifiedInviteBanner.classList.add('hidden');
+  });
+  els.inviteModeNever?.addEventListener('click', async () => {
+    els.unifiedInviteBanner.classList.add('hidden');
+    dismissUnifiedInviteLocal();
     if (state.user) {
       await saveStudentConfig(state.user.uid, { dispensaConvite: true }).catch(() => {});
+      await saveCorpConfig(state.user.uid, { dispensaConvite: true }).catch(() => {});
+    }
+  });
+
+  // Eventos do Ativador do Modo Corporativo (Etapa C0)
+  els.corpActivateCloseX?.addEventListener('click', () => els.corpActivateDialog.close());
+  els.corpActivateCancel?.addEventListener('click', () => els.corpActivateDialog.close());
+  els.corpMasterToggle?.addEventListener('change', () => {
+    const on = els.corpMasterToggle.checked;
+    els.corpModulesBox.querySelectorAll('input').forEach((i) => {
+      i.disabled = !on;
+    });
+    els.corpActivateSave.textContent = on ? (getCorpConfig().ativo ? 'Salvar módulos' : 'Ativar') : 'Desativar';
+  });
+  els.corpActivateSave?.addEventListener('click', async () => {
+    if (!state.user) return;
+    const ativo = els.corpMasterToggle.checked;
+    const estavaAtivo = modoCorporativoAtivo();
+    if (!ativo && estavaAtivo) {
+      const ok = window.confirm('Os recursos corporativos serão escondidos. Seus dados ficam guardados e voltam se você reativar.');
+      if (!ok) return;
+    }
+    const modulos = {};
+    els.corpModulesBox.querySelectorAll('input[data-corp-mod]').forEach((chk) => {
+      modulos[chk.dataset.corpMod] = chk.checked;
+    });
+    els.corpActivateError.classList.add('hidden');
+    els.corpActivateSave.disabled = true;
+    els.corpActivateSave.textContent = ativo ? 'Ativando…' : 'Salvando…';
+    try {
+      await saveCorpConfig(state.user.uid, { ativo, modulos });
+      await syncCorporativoModeLifecycle();
+      renderAll();
+      els.corpActivateDialog.close();
+      showToast(ativo ? 'Modo Corporativo ativado!' : 'Modo Corporativo desativado.');
+      if (ativo && !getCorpConfig().onboardingConcluido && corpUiMod?.showCorpOnboarding) {
+        corpUiMod.showCorpOnboarding(() => {
+          saveCorpConfig(state.user.uid, { onboardingConcluido: true }).catch(() => {});
+        });
+      }
+    } catch (err) {
+      console.error(err);
+      els.corpActivateError.textContent = 'Não foi possível carregar ou salvar o Modo Corporativo. Tente de novo.';
+      els.corpActivateError.classList.remove('hidden');
+    } finally {
+      els.corpActivateSave.disabled = false;
+      els.corpActivateSave.textContent = ativo ? 'Ativar' : 'Salvar';
     }
   });
 
@@ -2259,8 +2429,10 @@ function init() {
     }
   });
 
-  // Captura ?estudante=1 antes do login para retomar após autenticar
+  // Captura parâmetros de URL antes do login para retomar após autenticar
   const pendingStudentLink = captureStudentUrlParam();
+  const pendingWorkLink = captureWorkUrlParam();
+  let pendingDirectDemand = captureDirectDemandUrlParams();
 
   registerPWA();
   warmUpAiModel();
@@ -2290,8 +2462,8 @@ function init() {
       els.settingsBtn.classList.add('hidden');
       els.morningBtn.classList.add('hidden');
       els.metricsBtn.classList.add('hidden');
-      els.studentModeBtn.classList.add('hidden');
-      els.studentInviteBanner.classList.add('hidden');
+      els.modesBtn?.classList.add('hidden');
+      els.unifiedInviteBanner?.classList.add('hidden');
       return;
     }
 
@@ -2301,6 +2473,7 @@ function init() {
     els.settingsBtn.classList.remove('hidden');
     els.morningBtn.classList.remove('hidden');
     els.metricsBtn.classList.remove('hidden');
+    els.modesBtn?.classList.remove('hidden');
 
     if (!state.loadedInitial) {
       renderLoadingSkeletons(els.demandsList);
@@ -2331,18 +2504,32 @@ function init() {
       state.meusEspacos = wsSetup.meusEspacos;
       state.activeWsId = wsSetup.espacoAtivo;
 
-      // Sincroniza Modo Estudante com o Firestore (Firestore vence localStorage)
+      // Sincroniza Modos (Estudante e Corporativo) com o Firestore (Firestore vence localStorage)
       const stuCfg = syncStudentConfigFromProfile(wsSetup.profile);
+      const corpCfg = syncCorpConfigFromProfile(wsSetup.profile);
       await syncStudentModeLifecycle();
+      await syncCorporativoModeLifecycle();
 
-      if (pendingStudentLink || captureStudentUrlParam()) {
+      const wantsStudent = pendingStudentLink || captureStudentUrlParam();
+      const wantsWork = pendingWorkLink || captureWorkUrlParam();
+      if (wantsStudent && wantsWork) {
         clearStudentUrlParam();
-        if (!stuCfg.ativo) {
-          openStudentActivateDialog();
-        }
-      } else if (!stuCfg.ativo && !stuCfg.dispensaConvite && sessionStorage.getItem('pauta_stu_invite_shown') !== '1') {
-        sessionStorage.setItem('pauta_stu_invite_shown', '1');
-        els.studentInviteBanner.classList.remove('hidden');
+        clearWorkUrlParam();
+        openModesDialog();
+      } else if (wantsWork) {
+        clearWorkUrlParam();
+        if (!corpCfg.ativo) openCorpActivateDialog();
+      } else if (wantsStudent) {
+        clearStudentUrlParam();
+        if (!stuCfg.ativo) openStudentActivateDialog();
+      } else if (
+        !stuCfg.ativo &&
+        !corpCfg.ativo &&
+        !isUnifiedInviteDismissed() &&
+        sessionStorage.getItem('pauta_unified_invite_shown') !== '1'
+      ) {
+        sessionStorage.setItem('pauta_unified_invite_shown', '1');
+        els.unifiedInviteBanner?.classList.remove('hidden');
       }
 
       if (!wsSetup.profile.migradoV2) {
@@ -2380,7 +2567,28 @@ function init() {
       return;
     }
 
-    await activateWorkspaceContext(state.activeWsId, false);
+    // Etapa C1: se veio por link direto (?espaco=WSID&demanda=ID), busca apenas 1 documento
+    if (pendingDirectDemand) {
+      const target = pendingDirectDemand;
+      pendingDirectDemand = null;
+      clearDirectDemandUrlParams();
+      try {
+        const { fetchSingleDemandByLink } = await import('./corporativo/links.js?v=1');
+        const resLink = await fetchSingleDemandByLink(target.wsId, target.demandaId);
+        if (resLink.ok) {
+          await activateWorkspaceContext(target.wsId, true);
+          openEditDialog(resLink.demanda);
+        } else {
+          await activateWorkspaceContext(state.activeWsId, false);
+          showToast(resLink.message, 6000);
+        }
+      } catch {
+        await activateWorkspaceContext(state.activeWsId, false);
+        showToast('Não foi possível abrir o link da demanda.');
+      }
+    } else {
+      await activateWorkspaceContext(state.activeWsId, false);
+    }
 
     if (state.pendingInviteToken) {
       await handlePendingInviteToken(state.pendingInviteToken);

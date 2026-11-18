@@ -1,61 +1,66 @@
 # Pauta — Assistente de Demandas por Voz e Texto
 
-O **Pauta** é um assistente calmo e objetivo para registrar, organizar e acompanhar demandas por **comando de voz** ou **texto livre**, usando **HTML, CSS e JavaScript puros (ES Modules)**, sem build e sem servidor próprio.
+Aplicação web progressiva (PWA) feita em **HTML, CSS e JavaScript puros (ES Modules)**, sem build obrigatório, persistida no **Cloud Firestore** com **Firebase Auth (Google)**, **Firebase Hosting** e **Firebase AI Logic (Gemini)**.
+
+URL em produção: https://pauta-demandas-gi.web.app
 
 ---
 
-## O que está implementado (Fases 1 a 6)
+## Os 3 Modos do Pauta
 
-- **Fase 1 (Velocidade da IA):** prévia otimista instantânea (< 1s) por heurística local, refinamento em streaming com `gemini-3.5-flash-lite` sem sobrescrever campos editados manualmente, cache em memória, timeout de 8s com botão *"Tentar de novo"*, persistência offline do Firestore (IndexedDB) e medidor de velocidade em Configurações.
-- **Fase 2 (PWA e UX):** `manifest.json`, Service Worker (`/sw.js`) para uso offline da interface, botão *"Instalar"* (`beforeinstallprompt`), instrução para iPhone, skeletons de carregamento, estados vazios, atalhos de teclado (`N`, `/`, `M`, `Esc`, `?`) e toast **"Desfazer"** (~6s) ao concluir, editar ou excluir.
-- **Fase 3 (Gestão avançada):** subtarefas/checklist com barra de progresso, botão **Adiar (Soneca)**, demandas recorrentes (`diaria`, `semanal`, `mensal`, `dia_mes`), etiquetas com cores e filtro, visões por prazo (`Hoje`, `Esta semana`, `Atrasadas`, `Sem prazo`), histórico (linha do tempo), captura em lote e detecção local de duplicatas.
-- **Fase 4 (Comandos de voz de gestão):** seletor de modo (`Automático`, `Nova demanda`, `Comando`), consultas e ações por voz/texto com JSON estruturado de intenção, desambiguação e confirmação obrigatória antes de excluir.
-- **Fase 5 (Lembretes, resumos e métricas):** lembretes locais com respeito à soneca, horário de silêncio e limite por hora; tela **"Bom dia"**; resumo semanal pela IA; colar contexto (e-mail/mensagem); sugestão local de prioridade pelo histórico; painel de métricas em SVG puro; exportação **CSV** e **Imprimir / PDF**.
-- **Fase 6 (Segurança e qualidade):** `firestore.rules` validando dono (`uid`), tipos e limites de todos os campos; `Content-Security-Policy` em `firebase.json`; sanitização via `textContent`; suporte a Firebase App Check (reCAPTCHA Enterprise); e [TESTING.md](TESTING.md).
+1. **Simples (padrão)**: nenhum modo extra ativo. Captura por voz e texto, prazos, recorrência, subtarefas, alertas, métricas e espaços compartilhados. Zero módulos extras baixados.
+2. **Estudante** (`?estudante=1`): planner em PDF (Semanal, Diário, Mensal multi-mês, Provas), disciplinas, grade horária, calculadora de notas (provas + final), controle de faltas digitável, captura por plano de ensino e modo foco.
+3. **Corporativo** (`?trabalho=1`): reuniões e atas, extração de tarefas por voz ou texto/e-mail com prévia, histórico detalhado e atividade recente do espaço, relatório semanal em texto e links diretos para demandas.
 
-> **Importante sobre lembretes:** os lembretes funcionam **apenas com o Pauta aberto ou instalado como PWA**. Notificações com o aplicativo totalmente fechado exigiriam um servidor de push (Firebase Cloud Messaging + backend), fora do escopo atual.
+Você pode ativar **Estudante** e **Corporativo** juntos ou separadamente pelo menu **Modos do Pauta** (no cabeçalho ou em *Configurações*), e desativar a qualquer momento sem perder seus dados salvos.
 
 ---
 
-## Configuração no Firebase (passo a passo)
+## Colaboração em Espaços Compartilhados
 
-1. **Criar projeto e app Web** no [Firebase Console](https://console.firebase.google.com/) e copiar o `firebaseConfig` para `public/js/firebase-config.js`.
-2. **Authentication:** ativar provedor **Google** em *Build → Authentication → Sign-in method*.
-3. **Cloud Firestore:** criar o banco de dados em *Build → Firestore Database*.
-4. **Firebase AI Logic:** ativar *Gemini Developer API* em *Build → AI Logic* (ou via `npx.cmd -y firebase-tools@latest init ailogic`).
-5. **Firebase App Check (recomendado para proteger a cota de IA):**
-   - Crie uma chave **reCAPTCHA Enterprise** (tipo Site) no Google Cloud Console com os domínios `seu-projeto.web.app`, `seu-projeto.firebaseapp.com` e `localhost`.
-   - Vincule a chave em *Build → App Check → Apps* e cole a chave pública em `RECAPTCHA_ENTERPRISE_SITE_KEY` no `public/js/firebase-config.js`.
+- **Espaços**: cada usuário possui seu espaço *Pessoal* e pode criar espaços compartilhados (`equipe`).
+- **Convites**:
+  - **Por link** (`?convite=TOKEN`) com papel `Editor` ou `Leitor` e limite de usos.
+  - **Por e-mail**: envia via `mailto:` e exibe banner automático quando o convidado faz login.
+- **Permissões**:
+  - `admin`: gerencia membros, papéis, convites e demandas.
+  - `editor`: cria, edita, conclui, atribui múltiplos responsáveis e comenta.
+  - `leitor`: visualiza em tempo real e comenta (sem editar/excluir).
 
 ---
 
-## Testar localmente
+## Recursos do Modo Corporativo
 
-> **Importante:** não abra o `index.html` via `file://`. ES Modules, Service Worker e Web Speech API exigem `http://localhost` ou `https://`.
+- **Reuniões e atas**: lista paginada (`limit(15)`), ditado por voz incremental (acrescenta ao texto), rascunho local automático em `localStorage` e vínculo com as demandas geradas.
+- **Extração de tarefas**:
+  - *Voz* ("Falar a reunião") ou *Colar ata/e-mail* (até 15.000 caracteres).
+  - Prévia obrigatória com casamento local de membros (tratando ambiguidade e nomes externos), detecção de duplicatas e criação em lote (`writeBatch`).
+- **Histórico e Atividade recente**: registro de quem concluiu (`concluidoPorNome` / `concluidoPorUid`) e feed de atividade recente (`limit(30)`) carregado sob demanda.
+- **Relatório semanal**: geração local (sem IA) em texto simples, WhatsApp/Teams ou Markdown, com opção de copiar, compartilhar, abrir no e-mail e *Melhorar redação com IA*.
+- **Links diretos** (`?espaco=WSID&demanda=ID`): qualquer membro do espaço (mesmo no Modo Simples) abre diretamente a demanda com apenas 1 leitura; quem não é membro recebe aviso sem vazar dados.
+
+---
+
+## Deploy (Firebase Spark)
 
 ```powershell
-npx.cmd -y firebase-tools@latest login
-npx.cmd -y firebase-tools@latest use pauta-demandas-gi
-npx.cmd -y firebase-tools@latest serve --only hosting
+npx.cmd -y firebase-tools@latest deploy --only hosting,firestore:rules,firestore:indexes --project pauta-demandas-gi
 ```
-
-Acesse `http://localhost:5000`.
 
 ---
 
-## Deploy e atualizações futuras
+## Estimativa de Consumo de Cota (Spark — ~10 usuários)
 
-Para publicar **Hosting + Regras + Índices** juntos:
+- Limite gratuito Spark: **50.000 leituras/dia** e **20.000 gravações/dia**.
+- Listener único apenas do espaço ativo (pausado automaticamente após 5 min com a aba em segundo plano).
+- Comentários escutados apenas enquanto o modal da demanda está aberto.
+- Reuniões (`limit(15)`) e Atividade recente (`limit(30)`) carregadas sob demanda, sem listeners permanentes.
+- Relatórios e planners gerados 100% em memória a partir das demandas já carregadas.
+- **Estimativa para 10 usuários ativos/dia**: ~1.500 a 3.500 leituras/dia (~7% da cota) e ~200 a 500 gravações/dia (~2,5% da cota).
 
-```powershell
-npx.cmd -y firebase-tools@latest deploy --only hosting,firestore:rules,firestore:indexes
-```
+---
 
-Para subir atualizações depois no GitHub e no Firebase:
+## Fora do Escopo (Sem Servidor / Sem Cloud Functions)
 
-```powershell
-git add .
-git commit -m "Sua mensagem"
-git push origin main
-npx.cmd -y firebase-tools@latest deploy --only hosting,firestore:rules,firestore:indexes
-```
+- Notificações push com o navegador/app totalmente fechado.
+- Envio automático de e-mails pelo servidor (convites por e-mail e relatórios usam `mailto:` no dispositivo do usuário).

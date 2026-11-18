@@ -150,7 +150,7 @@ export async function createDemanda(wsId, user, dados) {
     prazo: dados.prazo ? String(dados.prazo).slice(0, 25) : null,
     categoria: dados.categoria ? String(dados.categoria).trim().slice(0, 80) : null,
     status: dados.status || 'pendente',
-    origem: dados.origem === 'voz' ? 'voz' : 'texto',
+    origem: ['voz', 'texto', 'reuniao'].includes(dados.origem) ? dados.origem : 'texto',
     textoOriginal: String(dados.textoOriginal || '').slice(0, 5000),
     subtarefas: normalizeSubtarefas(dados.subtarefas),
     adiadoAte: dados.adiadoAte ? String(dados.adiadoAte).slice(0, 25) : null,
@@ -158,6 +158,8 @@ export async function createDemanda(wsId, user, dados) {
     etiquetas: normalizeEtiquetas(dados.etiquetas),
     historico: appendHistorico(dados.historico, 'criada', dados.origem === 'voz' ? 'por voz' : 'por texto'),
     ...normalizeResponsaveis(dados),
+    ...(dados.reuniaoId !== undefined ? { reuniaoId: dados.reuniaoId || null } : {}),
+    ...(dados.reuniaoTitulo !== undefined ? { reuniaoTitulo: dados.reuniaoTitulo || null } : {}),
     ...(dados.disciplinaId !== undefined ? { disciplinaId: dados.disciplinaId || null } : {}),
     ...(dados.semestreId !== undefined ? { semestreId: dados.semestreId || null } : {}),
     ...(dados.tipo !== undefined ? { tipo: dados.tipo || null } : {}),
@@ -253,6 +255,7 @@ export function computeNextRecurrenceDate(prazoAtual, recorrencia) {
 
 export async function toggleDemandaStatus(wsId, user, demanda) {
   const uid = typeof user === 'string' ? user : user.uid;
+  const userName = typeof user === 'string' ? 'Usuário' : (user.displayName || user.email || 'Usuário');
   const ref = doc(db, 'workspaces', wsId, 'demandas', demanda.id);
   const vaiConcluir = demanda.status !== 'concluida';
 
@@ -261,7 +264,13 @@ export async function toggleDemandaStatus(wsId, user, demanda) {
     atualizadoPorUid: uid,
     atualizadoEm: serverTimestamp(),
     concluidoEm: vaiConcluir ? serverTimestamp() : null,
-    historico: appendHistorico(demanda.historico, vaiConcluir ? 'concluida' : 'reaberta')
+    concluidoPorUid: vaiConcluir ? uid : null,
+    concluidoPorNome: vaiConcluir ? String(userName).slice(0, 120) : null,
+    historico: appendHistorico(
+      demanda.historico,
+      vaiConcluir ? 'concluida' : 'reaberta',
+      `${userName}`
+    )
   });
   trackWrites(1);
 

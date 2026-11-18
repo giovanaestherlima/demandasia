@@ -514,6 +514,23 @@ export function renderDemandsList(container, demandas, prefs, handlers, options 
       meta.appendChild(createBadge(`👤 ${a.nome || 'Membro'}`, 'badge-tag'));
     }
 
+    if (options.showMeetingChip && d.reuniaoId) {
+      const mBtn = document.createElement('button');
+      mBtn.type = 'button';
+      mBtn.className = 'badge badge-primary';
+      mBtn.style.cursor = 'pointer';
+      mBtn.textContent = `Reunião: ${d.reuniaoTitulo || 'abrir'}`;
+      mBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        handlers.onOpenMeeting?.(d.reuniaoId);
+      });
+      meta.appendChild(mBtn);
+    }
+
+    if (options.showCompletedBy && isDone && d.concluidoPorNome) {
+      meta.appendChild(createBadge(`Concluída por ${d.concluidoPorNome}`));
+    }
+
     if (d.recorrencia?.tipo) {
       meta.appendChild(createBadge(`↻ ${LABEL_RECORRENCIA[d.recorrencia.tipo] || 'Recorrente'}`, 'badge-primary'));
     }
