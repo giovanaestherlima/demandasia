@@ -1,6 +1,6 @@
 // ============================================================================
 // Etapa C3: Extração Estruturada de Tarefas de Reuniões, Atas e E-mails
-// Usa Firebase AI Logic (gemini-3.5-flash-lite) com responseSchema e timeout 10s.
+// Usa Firebase AI Logic (gemini-3.8-flash) com responseSchema e timeout 10s.
 // ============================================================================
 
 import { getGenerativeModel, Schema } from 'https://www.gstatic.com/firebasejs/13.4.0/firebase-ai.js';
@@ -8,7 +8,7 @@ import { collection, doc, serverTimestamp, writeBatch } from 'https://www.gstati
 import { ai, db } from '../firebase-config.js?v=5';
 import { trackWrites } from '../workspaces.js?v=5';
 
-const MODELO_GEMINI = 'gemini-3.5-flash-lite';
+const MODELO_GEMINI = 'gemini-3.8-flash';
 const EXTRACTION_TIMEOUT_MS = 10000;
 export const MAX_EXTRACTION_CHARS = 15000;
 
@@ -20,7 +20,6 @@ function getExtractionModel() {
     extractionModel = getGenerativeModel(ai, {
       model: MODELO_GEMINI,
       generationConfig: {
-        temperature: 0.1,
         maxOutputTokens: 1600,
         responseMimeType: 'application/json',
         responseSchema: Schema.object({

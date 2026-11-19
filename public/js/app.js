@@ -53,6 +53,7 @@ import {
   createInvite,
   createNewWorkspace,
   deleteLegacyDemands,
+  deleteOwnedWorkspace,
   ensureUserAndPersonalWorkspace,
   findPendingEmailInvites,
   getInviteByToken,
@@ -274,6 +275,7 @@ const els = {
   cfgLaranja: document.getElementById('cfg-laranja'),
   cfgVermelho: document.getElementById('cfg-vermelho'),
   cfgTema: document.getElementById('cfg-tema'),
+  cfgWorkspacesList: document.getElementById('cfg-workspaces-list'),
   cfgNotifBtn: document.getElementById('cfg-notif-btn'),
   cfgDeleteLegacyWrap: document.getElementById('cfg-delete-legacy-wrap'),
   cfgDeleteLegacyBtn: document.getElementById('cfg-delete-legacy-btn'),
@@ -1757,10 +1759,50 @@ function bindEvents() {
     }
 
     els.cfgDeleteLegacyWrap.classList.toggle('hidden', !state.hasLegacyDemands);
+    renderSettingsWorkspacesList();
 
     updateNotifButtonText();
     els.settingsDialog.showModal();
   });
+
+  function renderSettingsWorkspacesList() {
+    if (!els.cfgWorkspacesList || !state.user) return;
+    els.cfgWorkspacesList.replaceChildren();
+    for (const esp of state.meusEspacos) {
+      const li = document.createElement('li');
+      li.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:0.5rem;padding:0.4rem 0.55rem;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.85rem;';
+      const info = document.createElement('span');
+      info.textContent = `${esp.nome || 'Espaço'} (${esp.papel || 'admin'})`;
+      li.appendChild(info);
+
+      if (esp.papel === 'admin' && state.meusEspacos.length > 1) {
+        const delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.className = 'btn btn-danger btn-sm';
+        delBtn.textContent = 'Excluir';
+        delBtn.addEventListener('click', async () => {
+          if (!window.confirm(`Excluir o espaço "${esp.nome}"? Apenas o criador original pode excluir.`)) return;
+          delBtn.disabled = true;
+          try {
+            await deleteOwnedWorkspace(state.user, esp.id);
+            state.meusEspacos = state.meusEspacos.filter((e) => e.id !== esp.id);
+            if (state.activeWsId === esp.id && state.meusEspacos[0]) {
+              await activateWorkspaceContext(state.meusEspacos[0].id, true);
+            } else {
+              renderWorkspaceSelector();
+            }
+            renderSettingsWorkspacesList();
+            showToast(`Espaço "${esp.nome}" excluído.`);
+          } catch (err) {
+            showToast(err.message || 'Não foi possível excluir este espaço.');
+            delBtn.disabled = false;
+          }
+        });
+        li.appendChild(delBtn);
+      }
+      els.cfgWorkspacesList.appendChild(li);
+    }
+  }
 
   els.cfgTema?.addEventListener('change', () => {
     applyTheme(els.cfgTema.value);

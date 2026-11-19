@@ -5,7 +5,7 @@
 import { getGenerativeModel } from 'https://www.gstatic.com/firebasejs/13.4.0/firebase-ai.js';
 import { ai } from '../firebase-config.js?v=5';
 
-const MODELO_GEMINI = 'gemini-3.5-flash-lite';
+const MODELO_GEMINI = 'gemini-3.8-flash';
 const LS_GOALS = 'pauta_student_goals';
 
 export function loadGentleGoals() {
@@ -75,7 +75,7 @@ export async function generateStudentWeeklySummary(demandas, sessoes) {
 
   const model = getGenerativeModel(ai, {
     model: MODELO_GEMINI,
-    generationConfig: { temperature: 0.3, maxOutputTokens: 240 }
+    generationConfig: { maxOutputTokens: 240 }
   });
 
   const prompt = `Escreva um resumo semanal gentil e motivador para um estudante (máx. 4 frases, sem cobrança punitiva):

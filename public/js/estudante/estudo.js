@@ -15,7 +15,7 @@ import { getGenerativeModel, Schema } from 'https://www.gstatic.com/firebasejs/1
 import { ai, db } from '../firebase-config.js?v=5';
 import { trackReads, trackWrites } from '../workspaces.js?v=5';
 
-const MODELO_GEMINI = 'gemini-3.5-flash-lite';
+const MODELO_GEMINI = 'gemini-3.8-flash';
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
 /**
@@ -35,7 +35,6 @@ export async function generateStudyPlanWithAI(demanda, horasPorDia = 2) {
   const model = getGenerativeModel(ai, {
     model: MODELO_GEMINI,
     generationConfig: {
-      temperature: 0.2,
       maxOutputTokens: 350,
       responseMimeType: 'application/json',
       responseSchema: Schema.object({

@@ -7,7 +7,7 @@ import { getGenerativeModel, Schema } from 'https://www.gstatic.com/firebasejs/1
 import { ai } from './firebase-config.js?v=5';
 
 const PRIORIDADES_VALIDAS = new Set(['baixa', 'media', 'alta', 'urgente']);
-const MODELO_GEMINI = 'gemini-3.5-flash-lite';
+const MODELO_GEMINI = 'gemini-3.8-flash';
 const DEFAULT_TIMEOUT_MS = 30000;
 const MAX_CACHE_SIZE = 50;
 
@@ -24,7 +24,6 @@ function getStructuredModel() {
     structuredModel = getGenerativeModel(ai, {
       model: MODELO_GEMINI,
       generationConfig: {
-        temperature: 0.1,
         maxOutputTokens: 280,
         responseMimeType: 'application/json',
         responseSchema: Schema.object({
@@ -489,7 +488,6 @@ export async function parseBatchDemandsWithAI(textoLivre) {
   const batchModel = getGenerativeModel(ai, {
     model: MODELO_GEMINI,
     generationConfig: {
-      temperature: 0.1,
       maxOutputTokens: 700,
       responseMimeType: 'application/json',
       responseSchema: Schema.object({
@@ -594,7 +592,6 @@ export async function interpretVoiceCommandWithAI(textoLivre, modoForcado = 'aut
   const cmdModel = getGenerativeModel(ai, {
     model: MODELO_GEMINI,
     generationConfig: {
-      temperature: 0.0,
       maxOutputTokens: 180,
       responseMimeType: 'application/json',
       responseSchema: Schema.object({
@@ -653,7 +650,7 @@ export async function generateWeeklySummaryWithAI(metrics, demandas) {
 
   const model = getGenerativeModel(ai, {
     model: MODELO_GEMINI,
-    generationConfig: { temperature: 0.3, maxOutputTokens: 260 }
+    generationConfig: { maxOutputTokens: 260 }
   });
 
   const pendentesTitulos = demandas

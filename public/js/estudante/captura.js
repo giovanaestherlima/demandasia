@@ -7,7 +7,7 @@ import { ai } from '../firebase-config.js?v=5';
 import { validateAiDemandJson, splitLocalBatchFallback } from '../ai.js?v=5';
 import { matchDisciplineByName } from './disciplinas.js?v=5';
 
-const MODELO_GEMINI = 'gemini-3.5-flash-lite';
+const MODELO_GEMINI = 'gemini-3.8-flash';
 
 /**
  * Redimensiona imagem no navegador via Canvas (~1280px, JPEG 0.7) antes de enviar à IA.
@@ -71,7 +71,6 @@ export async function extractDemandsFromImageWithAI(file, disciplinas = []) {
   const model = getGenerativeModel(ai, {
     model: MODELO_GEMINI,
     generationConfig: {
-      temperature: 0.1,
       maxOutputTokens: 800,
       responseMimeType: 'application/json',
       responseSchema: Schema.object({
@@ -124,7 +123,6 @@ export async function extractSyllabusWithAI(textoPlano, disciplinas = []) {
   const model = getGenerativeModel(ai, {
     model: MODELO_GEMINI,
     generationConfig: {
-      temperature: 0.1,
       maxOutputTokens: 900,
       responseMimeType: 'application/json',
       responseSchema: Schema.object({

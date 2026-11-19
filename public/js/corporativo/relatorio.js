@@ -200,8 +200,8 @@ export function generateWeeklyReportText(demandas, opts = {}) {
 export async function polishReportWithAI(rawText) {
   if (!ai) throw new Error('IA indisponível.');
   const model = getGenerativeModel(ai, {
-    model: 'gemini-3.5-flash-lite',
-    generationConfig: { temperature: 0.2, maxOutputTokens: 1200 }
+    model: 'gemini-3.8-flash',
+    generationConfig: { maxOutputTokens: 1200 }
   });
   const prompt = [
     'Melhore a redação do relatório semanal abaixo mantendo TODOS os fatos, números, datas, nomes e links exatamente iguais, sem inventar nada.',

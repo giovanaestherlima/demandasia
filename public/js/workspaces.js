@@ -105,10 +105,16 @@ export async function ensureUserAndPersonalWorkspace(user) {
   }
 
   const meusRef = collection(db, 'users', user.uid, 'meusEspacos');
-  const meusSnap = await getDocs(query(meusRef, orderBy('entradoEm', 'asc')));
+  const meusSnap = await getDocs(meusRef);
   trackReads(Math.max(1, meusSnap.size));
 
-  let meusEspacos = meusSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  let meusEspacos = meusSnap.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => {
+      const ta = a.entradoEm?.toMillis ? a.entradoEm.toMillis() : 0;
+      const tb = b.entradoEm?.toMillis ? b.entradoEm.toMillis() : 0;
+      return ta - tb;
+    });
 
   if (meusEspacos.length === 0) {
     const wsRef = doc(collection(db, 'workspaces'));
@@ -195,6 +201,24 @@ export async function createNewWorkspace(user, nome, tipo = 'equipe') {
 export async function switchActiveWorkspace(uid, wsId) {
   trackWrites(1);
   return updateDoc(doc(db, 'users', uid), { espacoAtivo: wsId });
+}
+
+export async function deleteOwnedWorkspace(user, wsId) {
+  const wsRef = doc(db, 'workspaces', wsId);
+  const wsSnap = await getDoc(wsRef);
+  trackReads(1);
+
+  if (wsSnap.exists() && wsSnap.data().criadoPor !== user.uid) {
+    throw new Error('Apenas o criador original pode excluir este espaço.');
+  }
+
+  const batch = writeBatch(db);
+  if (wsSnap.exists()) {
+    batch.delete(wsRef);
+  }
+  batch.delete(doc(db, 'users', user.uid, 'meusEspacos', wsId));
+  await batch.commit();
+  trackWrites(2);
 }
 
 export async function loadWorkspaceInfoAndMembers(wsId) {

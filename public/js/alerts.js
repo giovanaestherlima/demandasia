@@ -7,6 +7,7 @@ const MS_PER_DAY = 1000 * 60 * 60 * 24;
 export function toDate(ts) {
   if (!ts) return new Date();
   if (typeof ts.toDate === 'function') return ts.toDate();
+  if (typeof ts.seconds === 'number') return new Date(ts.seconds * 1000);
   if (ts instanceof Date) return ts;
   return new Date(ts);
 }

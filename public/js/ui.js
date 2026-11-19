@@ -73,6 +73,14 @@ function formatDaysLabel(dias) {
   return `há ${dias} dias`;
 }
 
+function formatCreatedDateLabel(criadoEm) {
+  const dt = toDate(criadoEm);
+  if (Number.isNaN(dt.getTime())) return 'criada hoje';
+  const dd = String(dt.getDate()).padStart(2, '0');
+  const mm = String(dt.getMonth() + 1).padStart(2, '0');
+  return `criada ${dd}/${mm}`;
+}
+
 function createBadge(texto, classeExtra = '') {
   const span = document.createElement('span');
   span.className = `badge ${classeExtra}`.trim();
@@ -575,7 +583,7 @@ export function renderDemandsList(container, demandas, prefs, handlers, options 
             : level === 'warn'
               ? 'badge-warn'
               : '';
-      meta.appendChild(createBadge(formatDaysLabel(dias), ageClass));
+      meta.appendChild(createBadge(formatCreatedDateLabel(d.criadoEm), ageClass));
     }
 
     card.appendChild(meta);
