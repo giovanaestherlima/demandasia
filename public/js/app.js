@@ -854,11 +854,19 @@ async function processRawInput(textoLivre, origem) {
   // Modo Comando ou Automático (verifica se é comando)
   if (state.captureMode === 'comando' || state.captureMode === 'auto') {
     const modoForcado = state.captureMode === 'comando' ? 'comando' : 'auto';
-    if (modoForcado === 'comando' || /^(o que|qual|quais|conclui|concluir|finaliza|adia|adiar|muda|altera|exclui|excluir|apaga)/i.test(texto)) {
+    const pareceComando =
+      /^(o que|qual|quais|conclui|concluir|conclua|finaliza|finalizar|finalize|adia|adiar|adie|muda|mudar|mude|altera|alterar|altere|coloca|colocar|coloque|passa|passar|passe|marca|marcar|marque|define|definir|defina|edita|editar|edite|troca|trocar|troque|exclui|excluir|exclua|apaga|apagar|apague|remove|remover|remova|deleta|deletar|delete)\b/i.test(texto) ||
+      /\bdemanda\s+1[.,]\d+\b/i.test(texto);
+
+    if (modoForcado === 'comando' || pareceComando) {
       const intent = await interpretVoiceCommandWithAI(texto, modoForcado);
       if (intent.tipo === 'comando' && intent.acao !== 'nenhuma') {
         await executeManagementCommand(intent);
         els.textInput.value = '';
+        return;
+      }
+      if (modoForcado === 'comando') {
+        replyCommand('Não entendi qual comando executar. Exemplos: "coloque a demanda 1.2 em andamento", "muda o prazo da 1.2 para sexta", "exclui a demanda 1.2".');
         return;
       }
     }
@@ -877,7 +885,7 @@ async function processRawInput(textoLivre, origem) {
   const rascunhoBase = {
     ...localDraft,
     ...acadDetect,
-    status: 'pendente',
+    status: localDraft.status || 'pendente',
     origem,
     textoOriginal: texto
   };
@@ -894,7 +902,7 @@ async function processRawInput(textoLivre, origem) {
       if (!result.usedFallback && state.user && state.activeWsId) {
         await updateDemanda(state.activeWsId, state.user.uid, docRef.id, {
           ...result.demanda,
-          status: 'pendente'
+          status: result.demanda.status || 'pendente'
         }, 'editada', 'refinamento IA');
       }
     } catch (err) {

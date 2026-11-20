@@ -565,11 +565,11 @@ function interpretCommandLocally(texto) {
   if (/(o que|quais).*(vence|vencem).*hoje/i.test(lower)) {
     return { tipo: 'comando', acao: 'vence_hoje', alvo: null };
   }
-  const mConcluir = lower.match(/^(?:conclui|concluir|finaliza|finalizar|fecha|fechar|marca como conclu[íi]da)\s+(?:a\s+demanda\s+(?:do|da|de)?\s*)?(.+)$/i);
+  const mConcluir = lower.match(/^(?:conclui|concluir|conclua|finaliza|finalizar|finalize|fecha|fechar|feche|marca como conclu[íi]da)\s+(?:a\s+demanda\s+(?:do|da|de)?\s*)?(.+)$/i);
   if (mConcluir) {
     return { tipo: 'comando', acao: 'concluir', alvo: mConcluir[1].trim() };
   }
-  const mPrazo = lower.match(/^(?:(?:muda|mudar|altera|alterar|troca|trocar|define|definir|coloca|colocar)\s+(?:o\s+)?)?prazo\s+(?:da\s+demanda\s+|do\s+|da\s+|de\s+)?(.+?)\s+(?:para|pra)\s+(.+)$/i);
+  const mPrazo = lower.match(/^(?:(?:muda|mudar|mude|altera|alterar|altere|troca|trocar|troque|define|definir|defina|coloca|colocar|coloque)\s+(?:o\s+)?)?prazo\s+(?:da\s+demanda\s+|do\s+|da\s+|de\s+)?(.+?)\s+(?:para|pra)\s+(.+)$/i);
   if (mPrazo) {
     return {
       tipo: 'comando',
@@ -578,7 +578,7 @@ function interpretCommandLocally(texto) {
       novoPrazo: inferDeadlineFallback(mPrazo[2]) || addDaysISO(1)
     };
   }
-  const mAdiar = lower.match(/^(?:adia|adiar|empurra|joga)\s+(?:a\s+demanda\s+(?:do|da|de)?\s*)?(.+?)\s+(?:para|pra)\s+(.+)$/i);
+  const mAdiar = lower.match(/^(?:adia|adiar|adie|empurra|empurrar|joga|jogar)\s+(?:a\s+demanda\s+(?:do|da|de)?\s*)?(.+?)\s+(?:para|pra)\s+(.+)$/i);
   if (mAdiar) {
     return {
       tipo: 'comando',
@@ -587,7 +587,7 @@ function interpretCommandLocally(texto) {
       novoPrazo: inferDeadlineFallback(mAdiar[2]) || addDaysISO(1)
     };
   }
-  const mDesc = lower.match(/^(?:altera|alterar|muda|mudar|edita|editar|troca|trocar)\s+(?:a\s+)?descri[çc][ãa]o\s+(?:da\s+demanda\s+|do\s+|da\s+|de\s+)?(.+?)\s+(?:para|pra|:)\s+(.+)$/i);
+  const mDesc = lower.match(/^(?:altera|alterar|altere|muda|mudar|mude|edita|editar|edite|troca|trocar|troque)\s+(?:a\s+)?descri[çc][ãa]o\s+(?:da\s+demanda\s+|do\s+|da\s+|de\s+)?(.+?)\s+(?:para|pra|:)\s+(.+)$/i);
   if (mDesc) {
     return {
       tipo: 'comando',
@@ -596,16 +596,17 @@ function interpretCommandLocally(texto) {
       novaDescricao: mDesc[2].trim()
     };
   }
-  const mStatus = lower.match(/^(?:coloca|colocar|muda|mudar|altera|alterar|marca|marcar|passa|passar)\s+(?:o\s+status\s+(?:da\s+demanda\s+|do\s+|da\s+|de\s+)?|(?:a\s+)?demanda\s+)?(.+?)\s+(?:para\s+|pra\s+|como\s+)?(pendente|em andamento)$/i);
+  const mStatus = lower.match(/^(?:coloca|colocar|coloque|muda|mudar|mude|altera|alterar|altere|marca|marcar|marque|passa|passar|passe|define|definir|defina)\s+(?:(?:o\s+)?status\s+(?:da\s+demanda\s+|do\s+|da\s+|de\s+)?|(?:a\s+)?demanda\s+)?(.+?)\s+(?:(?:para|pra)\s+(?:o\s+status\s+)?|(?:como|em)\s+)?(pendente|em andamento|conclu[íi]da)$/i);
   if (mStatus) {
+    const st = mStatus[2].toLowerCase();
     return {
       tipo: 'comando',
       acao: 'alterar_status',
       alvo: mStatus[1].trim(),
-      novoStatus: mStatus[2].toLowerCase().includes('andamento') ? 'em_andamento' : 'pendente'
+      novoStatus: st.includes('andamento') ? 'em_andamento' : st.includes('conclu') ? 'concluida' : 'pendente'
     };
   }
-  const mPrio = lower.match(/^(?:altera|alterar|muda|mudar|troca|trocar|define|definir)\s+(?:a\s+)?prioridade\s+(?:da\s+demanda\s+|do\s+|da\s+|de\s+)?(.+?)\s+(?:para|pra)\s+(baixa|m[ée]dia|alta|urgente)$/i);
+  const mPrio = lower.match(/^(?:altera|alterar|altere|muda|mudar|mude|troca|trocar|troque|define|definir|defina)\s+(?:a\s+)?prioridade\s+(?:da\s+demanda\s+|do\s+|da\s+|de\s+)?(.+?)\s+(?:para|pra)\s+(baixa|m[ée]dia|alta|urgente)$/i);
   if (mPrio) {
     const pNorm = mPrio[2].toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
     return {
@@ -615,7 +616,7 @@ function interpretCommandLocally(texto) {
       novaPrioridade: pNorm
     };
   }
-  const mExcluir = lower.match(/^(?:exclui|excluir|apaga|apagar|remove|remover|deleta|deletar)\s+(?:a\s+demanda\s+(?:do|da|de)?\s*)?(.+)$/i);
+  const mExcluir = lower.match(/^(?:exclui|excluir|exclua|apaga|apagar|apague|remove|remover|remova|deleta|deletar|delete)\s+(?:a\s+demanda\s+(?:do|da|de)?\s*)?(.+)$/i);
   if (mExcluir) {
     return { tipo: 'comando', acao: 'excluir', alvo: mExcluir[1].trim() };
   }
@@ -629,10 +630,15 @@ export async function interpretVoiceCommandWithAI(textoLivre, modoForcado = 'aut
   const texto = String(textoLivre || '').trim();
   if (!texto) throw new Error('Texto vazio.');
 
+  // Tenta resolver localmente primeiro (<1ms e zero gasto de cota de IA)
+  const local = interpretCommandLocally(texto);
+  if (local.tipo === 'comando' && local.acao !== 'nenhuma') {
+    return local;
+  }
+
   if (!ai) {
-    const local = interpretCommandLocally(texto);
-    if (modoForcado === 'comando' && local.tipo === 'nova_demanda') {
-      return { ...local, tipo: 'comando', acao: 'listar_pendentes' };
+    if (modoForcado === 'comando') {
+      return { tipo: 'comando', acao: 'nenhuma', alvo: null };
     }
     return local;
   }
