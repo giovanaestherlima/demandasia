@@ -165,6 +165,7 @@ export async function createDemanda(wsId, user, dados) {
     etiquetas: normalizeEtiquetas(dados.etiquetas),
     historico: appendHistorico(dados.historico, 'criada', dados.origem === 'voz' ? 'por voz' : 'por texto'),
     ...normalizeResponsaveis(dados),
+    ...(dados.codigo ? { codigo: String(dados.codigo).slice(0, 20) } : {}),
     ...(dados.reuniaoId !== undefined ? { reuniaoId: dados.reuniaoId || null } : {}),
     ...(dados.reuniaoTitulo !== undefined ? { reuniaoTitulo: dados.reuniaoTitulo || null } : {}),
     ...(dados.disciplinaId !== undefined ? { disciplinaId: dados.disciplinaId || null } : {}),

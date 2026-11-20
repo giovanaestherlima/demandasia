@@ -693,6 +693,9 @@ function applyAiFieldsIfClean(fields) {
   if (fields.categoria !== undefined && !state.dirtyFields.has('categoria')) {
     els.editCategoria.value = fields.categoria || '';
   }
+  if (fields.status !== undefined && !state.dirtyFields.has('status')) {
+    els.editStatus.value = fields.status || 'pendente';
+  }
   checkDuplicateAndHistoryHints();
 }
 
@@ -1110,12 +1113,33 @@ function replyCommand(msg) {
   els.commandReplyBox.classList.remove('hidden');
 }
 
+function getNextDemandCode() {
+  let maxNum = state.demandas.length;
+  for (const d of state.demandas) {
+    const code = String(d._codigo || d.codigo || '');
+    const m = code.match(/^1\.(\d+)$/);
+    if (m) {
+      const n = Number(m[1]);
+      if (n > maxNum) maxNum = n;
+    }
+  }
+  return `1.${maxNum + 1}`;
+}
+
 function findMatchingDemands(alvo) {
   if (!alvo) return [];
-  const termo = alvo.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const raw = String(alvo).trim();
+  const codeMatch = raw.match(/\b1[.,](\d+)\b/);
+  if (codeMatch) {
+    const codeNorm = `1.${codeMatch[1]}`;
+    const byCode = state.demandas.filter((d) => (d._codigo || d.codigo) === codeNorm);
+    if (byCode.length > 0) return byCode;
+  }
+
+  const termo = raw.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   return state.demandas.filter((d) => {
     if (d.status === 'concluida') return false;
-    const texto = `${d.titulo} ${d.descricao || ''} ${d.categoria || ''}`
+    const texto = `${d._codigo || d.codigo || ''} ${d.titulo} ${d.descricao || ''} ${d.categoria || ''}`
       .toLowerCase()
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '');
@@ -1180,6 +1204,20 @@ async function executeManagementCommand(intent) {
         prioridade: intent.novaPrioridade
       }, 'editada', `prioridade -> ${intent.novaPrioridade}`);
       replyCommand(`Prioridade de "${alvoDemanda.titulo}" alterada para ${intent.novaPrioridade}.`);
+    } else if (intent.acao === 'alterar_descricao' && intent.novaDescricao) {
+      await updateDemanda(state.activeWsId, state.user.uid, alvoDemanda.id, {
+        ...alvoDemanda,
+        descricao: intent.novaDescricao
+      }, 'editada', 'descrição atualizada');
+      replyCommand(`Descrição da demanda ${alvoDemanda._codigo || alvoDemanda.titulo} atualizada.`);
+    } else if (intent.acao === 'alterar_status' && intent.novoStatus) {
+      const novo = intent.novoStatus;
+      await updateDemanda(state.activeWsId, state.user.uid, alvoDemanda.id, {
+        ...alvoDemanda,
+        status: novo
+      }, 'editada', `status -> ${novo}`);
+      const labelSt = novo === 'em_andamento' ? 'Em andamento' : novo === 'concluida' ? 'Concluída' : 'Pendente';
+      replyCommand(`Status de "${alvoDemanda.titulo}" alterado para ${labelSt}.`);
     } else if (intent.acao === 'excluir') {
       openDeleteDialog(alvoDemanda);
     }
@@ -1608,7 +1646,8 @@ function bindEvents() {
       } else if (state.pendingDraft) {
         const writePromise = createDemanda(wsId, user, {
           ...state.pendingDraft,
-          ...dados
+          ...dados,
+          codigo: state.pendingDraft.codigo || getNextDemandCode()
         });
         writePromise.catch((err) => {
           showToast('Erro ao sincronizar demanda com o Firestore.');
@@ -2037,7 +2076,10 @@ function init() {
     state.unsubscribeDemandas = subscribeDemandas(
       state.activeWsId,
       (demandas) => {
-        state.demandas = demandas;
+        state.demandas = demandas.map((d, idx) => ({
+          ...d,
+          _codigo: d.codigo || `1.${idx + 1}`
+        }));
         state.loadedInitial = true;
         renderAll();
 

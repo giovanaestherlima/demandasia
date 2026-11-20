@@ -255,7 +255,7 @@ export function filterAndSortDemandas(demandas, { filter, search, sort, tag, ass
       const respTxt = assignees.map((a) => a.nome || '').join(' ');
       const reuniaoTxt = d.reuniaoTitulo ? `reuniao ${d.reuniaoTitulo}` : '';
       const alvo = normalizeSearchText(
-        `${d.titulo} ${d.descricao} ${d.categoria || ''} ${respTxt} ${reuniaoTxt} ${d.prioridade || ''} ${prioLabel} ${tagsTxt} ${datasTxt}`
+        `${d._codigo || d.codigo || ''} ${d.titulo} ${d.descricao} ${d.categoria || ''} ${respTxt} ${reuniaoTxt} ${d.prioridade || ''} ${prioLabel} ${tagsTxt} ${datasTxt}`
       );
       if (!alvo.includes(termo)) return false;
     }
@@ -396,11 +396,20 @@ export function renderDemandsList(container, demandas, prefs, handlers, options 
       });
     }
 
+    const codeBadge = document.createElement('span');
+    codeBadge.className = 'badge';
+    codeBadge.style.cssText = 'font-family:monospace;font-weight:700;font-size:0.75rem;flex-shrink:0;';
+    codeBadge.textContent = d._codigo || d.codigo || '';
+
     const titleEl = document.createElement('h3');
     titleEl.className = 'demand-title';
     titleEl.textContent = d.titulo;
 
-    checkWrap.append(checkBtn, titleEl);
+    if (codeBadge.textContent) {
+      checkWrap.append(checkBtn, codeBadge, titleEl);
+    } else {
+      checkWrap.append(checkBtn, titleEl);
+    }
 
     const actions = document.createElement('div');
     actions.className = 'demand-actions demand-menu-wrap';

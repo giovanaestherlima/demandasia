@@ -34,9 +34,10 @@ function getStructuredModel(modelName = MODELO_GEMINI) {
             descricao: Schema.string(),
             prioridade: Schema.enumString({ enum: ['baixa', 'media', 'alta', 'urgente'] }),
             prazo: Schema.string({ nullable: true }),
-            categoria: Schema.string({ nullable: true })
+            categoria: Schema.string({ nullable: true }),
+            status: Schema.enumString({ enum: ['pendente', 'em_andamento'], nullable: true })
           },
-          optionalProperties: ['prazo', 'categoria']
+          optionalProperties: ['prazo', 'categoria', 'status']
         })
       }
     });
@@ -188,13 +189,17 @@ export function buildFallbackDemand(texto) {
     : '';
   const prioridade = inferPriorityFallback(lower);
   const prazo = inferDeadlineFallback(lower);
+  const status = /\bem andamento\b|\bj[áa] comecei\b|\bestou fazendo\b|\bexecutando\b/i.test(lower)
+    ? 'em_andamento'
+    : 'pendente';
 
   return {
     titulo,
     descricao,
     prioridade,
     prazo,
-    categoria: null
+    categoria: null,
+    status
   };
 }
 
@@ -233,12 +238,15 @@ export function validateAiDemandJson(raw, textoOriginal) {
       ? raw.categoria.trim().slice(0, 80)
       : null;
 
+  const status = raw.status === 'em_andamento' ? 'em_andamento' : 'pendente';
+
   return {
     titulo: titulo.slice(0, 70),
     descricao: descricao.slice(0, 5000),
     prioridade,
     prazo,
-    categoria
+    categoria,
+    status
   };
 }
 
@@ -295,6 +303,7 @@ Regras:
 - prioridade: "baixa" | "media" | "alta" | "urgente".
 - prazo: "YYYY-MM-DD" se mencionado, senão null.
 - categoria: tema ou solicitante se mencionado, senão null.
+- status: "em_andamento" se o usuário disser que já começou, está em andamento ou executando; caso contrário "pendente".
 Texto: """${texto}"""`;
 }
 
@@ -578,6 +587,34 @@ function interpretCommandLocally(texto) {
       novoPrazo: inferDeadlineFallback(mAdiar[2]) || addDaysISO(1)
     };
   }
+  const mDesc = lower.match(/^(?:altera|alterar|muda|mudar|edita|editar|troca|trocar)\s+(?:a\s+)?descri[çc][ãa]o\s+(?:da\s+demanda\s+|do\s+|da\s+|de\s+)?(.+?)\s+(?:para|pra|:)\s+(.+)$/i);
+  if (mDesc) {
+    return {
+      tipo: 'comando',
+      acao: 'alterar_descricao',
+      alvo: mDesc[1].trim(),
+      novaDescricao: mDesc[2].trim()
+    };
+  }
+  const mStatus = lower.match(/^(?:coloca|colocar|muda|mudar|altera|alterar|marca|marcar|passa|passar)\s+(?:o\s+status\s+(?:da\s+demanda\s+|do\s+|da\s+|de\s+)?|(?:a\s+)?demanda\s+)?(.+?)\s+(?:para\s+|pra\s+|como\s+)?(pendente|em andamento)$/i);
+  if (mStatus) {
+    return {
+      tipo: 'comando',
+      acao: 'alterar_status',
+      alvo: mStatus[1].trim(),
+      novoStatus: mStatus[2].toLowerCase().includes('andamento') ? 'em_andamento' : 'pendente'
+    };
+  }
+  const mPrio = lower.match(/^(?:altera|alterar|muda|mudar|troca|trocar|define|definir)\s+(?:a\s+)?prioridade\s+(?:da\s+demanda\s+|do\s+|da\s+|de\s+)?(.+?)\s+(?:para|pra)\s+(baixa|m[ée]dia|alta|urgente)$/i);
+  if (mPrio) {
+    const pNorm = mPrio[2].toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    return {
+      tipo: 'comando',
+      acao: 'alterar_prioridade',
+      alvo: mPrio[1].trim(),
+      novaPrioridade: pNorm
+    };
+  }
   const mExcluir = lower.match(/^(?:exclui|excluir|apaga|apagar|remove|remover|deleta|deletar)\s+(?:a\s+demanda\s+(?:do|da|de)?\s*)?(.+)$/i);
   if (mExcluir) {
     return { tipo: 'comando', acao: 'excluir', alvo: mExcluir[1].trim() };
@@ -603,19 +640,21 @@ export async function interpretVoiceCommandWithAI(textoLivre, modoForcado = 'aut
   const cmdModel = getGenerativeModel(ai, {
     model: MODELO_GEMINI,
     generationConfig: {
-      maxOutputTokens: 180,
+      maxOutputTokens: 220,
       responseMimeType: 'application/json',
       responseSchema: Schema.object({
         properties: {
           tipo: Schema.enumString({ enum: ['nova_demanda', 'comando'] }),
           acao: Schema.enumString({
-            enum: ['listar_pendentes', 'mais_antiga', 'vence_hoje', 'concluir', 'adiar', 'alterar_prazo', 'alterar_prioridade', 'excluir', 'nenhuma']
+            enum: ['listar_pendentes', 'mais_antiga', 'vence_hoje', 'concluir', 'adiar', 'alterar_prazo', 'alterar_prioridade', 'alterar_descricao', 'alterar_status', 'excluir', 'nenhuma']
           }),
           alvo: Schema.string({ nullable: true }),
           novaPrioridade: Schema.enumString({ enum: ['baixa', 'media', 'alta', 'urgente'], nullable: true }),
-          novoPrazo: Schema.string({ nullable: true })
+          novoPrazo: Schema.string({ nullable: true }),
+          novaDescricao: Schema.string({ nullable: true }),
+          novoStatus: Schema.enumString({ enum: ['pendente', 'em_andamento', 'concluida'], nullable: true })
         },
-        optionalProperties: ['alvo', 'novaPrioridade', 'novoPrazo']
+        optionalProperties: ['alvo', 'novaPrioridade', 'novoPrazo', 'novaDescricao', 'novoStatus']
       })
     }
   });
@@ -623,16 +662,19 @@ export async function interpretVoiceCommandWithAI(textoLivre, modoForcado = 'aut
   const dataISO = addDaysISO(0);
   const prompt = `Classifique a fala do usuário (pt-BR). Hoje: ${dataISO}. Modo: ${modoForcado}.
 Se modo="comando", sempre retorne tipo="comando".
+O usuário pode identificar a demanda pelo título OU pelo código numérico dela (ex: "1.2", "1.7", "1.3"). Se citar um código como "1.2", coloque exatamente "1.2" em alvo.
 Se for pergunta ou ação sobre demandas existentes:
 - "o que está pendente?" -> acao="listar_pendentes"
 - "qual a mais antiga?" -> acao="mais_antiga"
 - "o que vence hoje?" -> acao="vence_hoje"
 - "conclui X" -> acao="concluir"
 - "adia X para sexta" / "soneca X" -> acao="adiar" (apenas soneca de alertas)
-- "mudar prazo de X para sexta" / "prazo de X para dia 20" -> acao="alterar_prazo" (altera a data de prazo da demanda)
-- "muda prioridade de X para urgente" -> acao="alterar_prioridade"
-- "exclui X" -> acao="excluir"
-Preencha alvo/novaPrioridade/novoPrazo (YYYY-MM-DD).
+- "mudar prazo de X para sexta" / "muda o prazo da demanda 1.7 para dia 20" -> acao="alterar_prazo"
+- "muda prioridade da demanda 1.3 para urgente" -> acao="alterar_prioridade"
+- "altera a descrição da demanda 1.2 para ..." -> acao="alterar_descricao" (preencha novaDescricao)
+- "coloca a demanda 1.2 em andamento" / "muda status de X para pendente" -> acao="alterar_status" (preencha novoStatus)
+- "apaga a demanda 1.2" / "exclui X" -> acao="excluir"
+Preencha alvo/novaPrioridade/novoPrazo (YYYY-MM-DD)/novaDescricao/novoStatus.
 Caso contrário, retorne tipo="nova_demanda" e acao="nenhuma".
 Fala: """${texto}"""`;
 
