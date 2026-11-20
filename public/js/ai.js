@@ -643,28 +643,6 @@ export async function interpretVoiceCommandWithAI(textoLivre, modoForcado = 'aut
     return local;
   }
 
-  const cmdModel = getGenerativeModel(ai, {
-    model: MODELO_GEMINI,
-    generationConfig: {
-      maxOutputTokens: 220,
-      responseMimeType: 'application/json',
-      responseSchema: Schema.object({
-        properties: {
-          tipo: Schema.enumString({ enum: ['nova_demanda', 'comando'] }),
-          acao: Schema.enumString({
-            enum: ['listar_pendentes', 'mais_antiga', 'vence_hoje', 'concluir', 'adiar', 'alterar_prazo', 'alterar_prioridade', 'alterar_descricao', 'alterar_status', 'excluir', 'nenhuma']
-          }),
-          alvo: Schema.string({ nullable: true }),
-          novaPrioridade: Schema.enumString({ enum: ['baixa', 'media', 'alta', 'urgente'], nullable: true }),
-          novoPrazo: Schema.string({ nullable: true }),
-          novaDescricao: Schema.string({ nullable: true }),
-          novoStatus: Schema.enumString({ enum: ['pendente', 'em_andamento', 'concluida'], nullable: true })
-        },
-        optionalProperties: ['alvo', 'novaPrioridade', 'novoPrazo', 'novaDescricao', 'novoStatus']
-      })
-    }
-  });
-
   const dataISO = addDaysISO(0);
   const prompt = `Classifique a fala do usuário (pt-BR). Hoje: ${dataISO}. Modo: ${modoForcado}.
 Se modo="comando", sempre retorne tipo="comando".
@@ -684,18 +662,42 @@ Preencha alvo/novaPrioridade/novoPrazo (YYYY-MM-DD)/novaDescricao/novoStatus.
 Caso contrário, retorne tipo="nova_demanda" e acao="nenhuma".
 Fala: """${texto}"""`;
 
-  try {
-    const res = await cmdModel.generateContent(prompt);
-    const parsed = JSON.parse(res.response.text());
-    if (modoForcado === 'comando') parsed.tipo = 'comando';
-    if (parsed.acao === 'adiar' && /\bprazo\b/i.test(texto) && !/\b(adia|adiar|soneca)\b/i.test(texto)) {
-      parsed.acao = 'alterar_prazo';
+  for (const modelName of MODELOS_FALLBACK) {
+    try {
+      const cmdModel = getGenerativeModel(ai, {
+        model: modelName,
+        generationConfig: {
+          maxOutputTokens: 220,
+          responseMimeType: 'application/json',
+          responseSchema: Schema.object({
+            properties: {
+              tipo: Schema.enumString({ enum: ['nova_demanda', 'comando'] }),
+              acao: Schema.enumString({
+                enum: ['listar_pendentes', 'mais_antiga', 'vence_hoje', 'concluir', 'adiar', 'alterar_prazo', 'alterar_prioridade', 'alterar_descricao', 'alterar_status', 'excluir', 'nenhuma']
+              }),
+              alvo: Schema.string({ nullable: true }),
+              novaPrioridade: Schema.enumString({ enum: ['baixa', 'media', 'alta', 'urgente'], nullable: true }),
+              novoPrazo: Schema.string({ nullable: true }),
+              novaDescricao: Schema.string({ nullable: true }),
+              novoStatus: Schema.enumString({ enum: ['pendente', 'em_andamento', 'concluida'], nullable: true })
+            },
+            optionalProperties: ['alvo', 'novaPrioridade', 'novoPrazo', 'novaDescricao', 'novoStatus']
+          })
+        }
+      });
+      const res = await cmdModel.generateContent(prompt);
+      const parsed = JSON.parse(res.response.text());
+      if (modoForcado === 'comando') parsed.tipo = 'comando';
+      if (parsed.acao === 'adiar' && /\bprazo\b/i.test(texto) && !/\b(adia|adiar|soneca)\b/i.test(texto)) {
+        parsed.acao = 'alterar_prazo';
+      }
+      return parsed;
+    } catch (err) {
+      console.warn(`[Pauta AI Command] Tentando próximo modelo após falha em ${modelName}:`, err);
     }
-    return parsed;
-  } catch (err) {
-    console.warn('[Pauta AI Command] Fallback local:', err);
-    return interpretCommandLocally(texto);
   }
+
+  return interpretCommandLocally(texto);
 }
 
 // ============================================================================

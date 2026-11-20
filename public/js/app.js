@@ -788,35 +788,37 @@ function recordPerf(localMs, aiMs, cached, fallback) {
 async function runPreviewAiRefinement(texto, sessionId, localMs) {
   setPreviewAiBar('refining', 'Refinando com IA…', false);
 
-  const result = await parseDemandWithAIStream(texto, {
-    timeoutMs: 30000,
-    onPartial: (partialFields) => {
-      if (state.refineSessionId !== sessionId || !els.previewDialog.open) return;
-      applyAiFieldsIfClean(partialFields);
+  while (state.refineSessionId === sessionId && els.previewDialog.open) {
+    const result = await parseDemandWithAIStream(texto, {
+      timeoutMs: 30000,
+      onPartial: (partialFields) => {
+        if (state.refineSessionId !== sessionId || !els.previewDialog.open) return;
+        applyAiFieldsIfClean(partialFields);
+      }
+    });
+
+    if (state.refineSessionId !== sessionId || !els.previewDialog.open) return;
+
+    recordPerf(localMs, result.elapsedMs, result.cached, result.usedFallback);
+
+    if (!result.usedFallback) {
+      applyAiFieldsIfClean(result.demanda);
+      if (state.pendingDraft) {
+        state.pendingDraft = { ...state.pendingDraft, ...result.demanda };
+      }
+
+      if (state.debugTempo) {
+        const origemTxt = result.cached ? 'cache' : `${result.elapsedMs}ms`;
+        setPreviewAiBar('done', `Refinado pela IA (${origemTxt} | prévia local: ${localMs}ms).`, false);
+      } else {
+        setPreviewAiBar('hidden', '', false);
+      }
+      return;
     }
-  });
 
-  if (state.refineSessionId !== sessionId || !els.previewDialog.open) return;
-
-  recordPerf(localMs, result.elapsedMs, result.cached, result.usedFallback);
-
-  if (result.usedFallback) {
-    const motivo = result.timedOut ? 'IA demorou mais de 30s' : (result.reason || 'IA indisponível');
-    const perfTxt = state.debugTempo ? ` [${localMs}ms local | ${result.elapsedMs}ms IA]` : '';
-    setPreviewAiBar('warn', `Versão local mantida (${motivo}).${perfTxt}`, true);
-    return;
-  }
-
-  applyAiFieldsIfClean(result.demanda);
-  if (state.pendingDraft) {
-    state.pendingDraft = { ...state.pendingDraft, ...result.demanda };
-  }
-
-  if (state.debugTempo) {
-    const origemTxt = result.cached ? 'cache' : `${result.elapsedMs}ms`;
-    setPreviewAiBar('done', `Refinado pela IA (${origemTxt} | prévia local: ${localMs}ms).`, false);
-  } else {
-    setPreviewAiBar('hidden', '', false);
+    // Continua tentando silenciosamente sem exibir erro nem botão "Tentar de novo"
+    setPreviewAiBar('refining', 'Refinando com IA…', false);
+    await new Promise((r) => setTimeout(r, 2500));
   }
 }
 
@@ -2554,9 +2556,19 @@ function init() {
     }
   });
 
-  // Economia de cota Spark e reconexão automática após longa inatividade / suspensão no celular
+  // Economia de cota Spark e reconexão automática após longa inatividade / fim de semana
   let lastHiddenAt = 0;
-  const resumeConnectionIfNeeded = () => {
+  const safeReloadAfterLongIdle = () => {
+    try {
+      const lastReload = Number(sessionStorage.getItem('pauta_last_idle_reload') || 0);
+      if (Date.now() - lastReload < 15000) return false;
+      sessionStorage.setItem('pauta_last_idle_reload', String(Date.now()));
+    } catch {}
+    window.location.reload();
+    return true;
+  };
+
+  const resumeConnectionIfNeeded = async () => {
     if (state.hiddenTabTimer) {
       clearTimeout(state.hiddenTabTimer);
       state.hiddenTabTimer = null;
@@ -2566,9 +2578,19 @@ function init() {
     const hiddenDurationMs = lastHiddenAt ? Date.now() - lastHiddenAt : 0;
     lastHiddenAt = 0;
 
-    // Se ficou > 10 min parado/suspenso, renova token e reabre o listener para não travar em socket antigo
+    // Se ficou > 2 horas parado (ex.: fim de semana), recarrega de forma limpa
+    if (hiddenDurationMs > 2 * 60 * 60 * 1000) {
+      if (safeReloadAfterLongIdle()) return;
+    }
+
+    // Se ficou > 10 min parado/suspenso, renova token e reabre o listener
     if (hiddenDurationMs > 10 * 60 * 1000) {
-      state.user.getIdToken?.(true).catch(() => {});
+      try {
+        await state.user.getIdToken?.(true);
+      } catch {
+        safeReloadAfterLongIdle();
+        return;
+      }
       startWorkspaceDemandsSubscription();
     } else if (!state.unsubscribeDemandas) {
       startWorkspaceDemandsSubscription();
@@ -2590,6 +2612,7 @@ function init() {
     }
   });
 
+  window.addEventListener('focus', resumeConnectionIfNeeded);
   window.addEventListener('pageshow', (e) => {
     if (e.persisted) resumeConnectionIfNeeded();
   });
