@@ -2554,9 +2554,30 @@ function init() {
     }
   });
 
-  // Economia de cota Spark: pausa listener após 5 min com aba oculta e retoma ao voltar
+  // Economia de cota Spark e reconexão automática após longa inatividade / suspensão no celular
+  let lastHiddenAt = 0;
+  const resumeConnectionIfNeeded = () => {
+    if (state.hiddenTabTimer) {
+      clearTimeout(state.hiddenTabTimer);
+      state.hiddenTabTimer = null;
+    }
+    if (!state.user || !state.activeWsId) return;
+
+    const hiddenDurationMs = lastHiddenAt ? Date.now() - lastHiddenAt : 0;
+    lastHiddenAt = 0;
+
+    // Se ficou > 10 min parado/suspenso, renova token e reabre o listener para não travar em socket antigo
+    if (hiddenDurationMs > 10 * 60 * 1000) {
+      state.user.getIdToken?.(true).catch(() => {});
+      startWorkspaceDemandsSubscription();
+    } else if (!state.unsubscribeDemandas) {
+      startWorkspaceDemandsSubscription();
+    }
+  };
+
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
+      lastHiddenAt = Date.now();
       if (state.hiddenTabTimer) clearTimeout(state.hiddenTabTimer);
       state.hiddenTabTimer = setTimeout(() => {
         if (state.unsubscribeDemandas) {
@@ -2565,15 +2586,14 @@ function init() {
         }
       }, 5 * 60 * 1000);
     } else {
-      if (state.hiddenTabTimer) {
-        clearTimeout(state.hiddenTabTimer);
-        state.hiddenTabTimer = null;
-      }
-      if (state.user && state.activeWsId && !state.unsubscribeDemandas) {
-        startWorkspaceDemandsSubscription();
-      }
+      resumeConnectionIfNeeded();
     }
   });
+
+  window.addEventListener('pageshow', (e) => {
+    if (e.persisted) resumeConnectionIfNeeded();
+  });
+  window.addEventListener('online', resumeConnectionIfNeeded);
 
   // Captura parâmetros de URL antes do login para retomar após autenticar
   const pendingStudentLink = captureStudentUrlParam();
