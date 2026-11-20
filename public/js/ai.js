@@ -8,21 +8,23 @@ import { ai } from './firebase-config.js?v=5';
 
 const PRIORIDADES_VALIDAS = new Set(['baixa', 'media', 'alta', 'urgente']);
 const MODELO_GEMINI = 'gemini-3.8-flash';
+const MODELOS_FALLBACK = ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite'];
 const DEFAULT_TIMEOUT_MS = 30000;
 const MAX_CACHE_SIZE = 50;
 
 let structuredModel = null;
+const structuredModelsCache = new Map();
 const aiResponseCache = new Map();
 
 /**
  * Retorna ou cria a instância do modelo Gemini configurado com Structured Output.
- * Pré-aquecido no carregamento para eliminar custo de inicialização na primeira fala.
+ * Suporta cascata de modelos caso o principal atinja o limite de cota (429).
  */
-function getStructuredModel() {
+function getStructuredModel(modelName = MODELO_GEMINI) {
   if (!ai) return null;
-  if (!structuredModel) {
-    structuredModel = getGenerativeModel(ai, {
-      model: MODELO_GEMINI,
+  if (!structuredModelsCache.has(modelName)) {
+    const instance = getGenerativeModel(ai, {
+      model: modelName,
       generationConfig: {
         maxOutputTokens: 280,
         responseMimeType: 'application/json',
@@ -38,8 +40,10 @@ function getStructuredModel() {
         })
       }
     });
+    structuredModelsCache.set(modelName, instance);
+    if (modelName === MODELO_GEMINI) structuredModel = instance;
   }
-  return structuredModel;
+  return structuredModelsCache.get(modelName);
 }
 
 /**
@@ -148,8 +152,8 @@ function inferDeadlineFallback(textoLower) {
  */
 function buildCleanTitleFallback(limpo) {
   let base = limpo
-    .replace(/^(eu\s+)?(preciso|tenho que|precisamos|lembrar de|anota a[íi]|por favor|favor|demanda(?:\s+de)?)\s+/i, '')
-    .replace(/[,;.\s]*(?:essa\s+demanda\s+)?(?:urgente|priorit[áa]ria)?\s*precisa\s+ser\s+(?:realizada|feita|entregue).*$/i, '')
+    .replace(/^(?:eu\s+)?(?:preciso|tenho que|precisamos|lembrar de|anota a[íi]|por favor|favor|(?:registrar|criar|adicionar|anotar)\s+(?:uma\s+)?(?:nova\s+)?(?:demanda|atividade|tarefa)|(?:uma\s+)?(?:nova\s+)?(?:demanda|atividade|tarefa|pend[êe]ncia)(?:\s+(?:de|para|pra|sobre))?)\s+/i, '')
+    .replace(/[,;.\s]*(?:essa\s+(?:demanda|atividade|tarefa)\s+)?(?:urgente|priorit[áa]ria)?\s*precisa\s+ser\s+(?:realizada|feita|entregue).*$/i, '')
     .replace(/[,;.\s]*(?:at[ée]|para)\s+(?:o\s+)?dia\s+\d{1,2}(?:\s+de\s+[a-zç]+)?.*$/i, '')
     .replace(/[,;.\s]*(?:isso\s+)?[ée]\s+(?:uma\s+demanda\s+)?(urgente|prioridade|alta|baixa|para ontem)\b.*$/i, '')
     .replace(/[,;.\s]*\b(urgente|com urg[êe]ncia)\b[.!]*$/i, '')
@@ -286,8 +290,8 @@ function buildCompactPrompt(texto) {
 
   return `Organize a demanda em JSON (pt-BR). Hoje: ${diaSemana}, ${dataISO} ${hora} (${fuso}).
 Regras:
-- titulo: ação curta e objetiva (máx. 70 chars), sem "preciso/urgente/prazo".
-- descricao: resumo claro do que foi dito, sem inventar dados.
+- titulo: ação ou entrega curta e objetiva (máx. 70 chars). NUNCA inclua palavras genéricas de ditado como "demanda", "atividade", "tarefa", "item", "pendência", "preciso", "tenho que", "urgente" ou "prazo". Ex.: "demanda para criar o relatório do marketing" -> "Criação do relatório de marketing" ou "Relatório de marketing".
+- descricao: resumo direto e natural do que precisa ser feito, sem inventar dados e sem repetir muletas de fala como "demanda para", "atividade de" ou "tarefa para".
 - prioridade: "baixa" | "media" | "alta" | "urgente".
 - prazo: "YYYY-MM-DD" se mencionado, senão null.
 - categoria: tema ou solicitante se mencionado, senão null.
@@ -339,12 +343,13 @@ export async function parseDemandWithAIStream(textoLivre, options = {}) {
   const totalTimeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const deadline = Date.now() + totalTimeoutMs;
   let lastErr = null;
-  let attempt = 0;
+  let modelIdx = 0;
 
-  while (Date.now() < deadline) {
-    attempt += 1;
+  while (Date.now() < deadline && modelIdx < MODELOS_FALLBACK.length) {
+    const modelName = MODELOS_FALLBACK[modelIdx];
+    const activeModel = getStructuredModel(modelName);
     const remainingMs = deadline - Date.now();
-    if (remainingMs <= 0) break;
+    if (remainingMs <= 0 || !activeModel) break;
 
     const perAttemptMs = Math.min(remainingMs, 10000);
     let cancelled = false;
@@ -352,7 +357,7 @@ export async function parseDemandWithAIStream(textoLivre, options = {}) {
 
     const runStream = async () => {
       const prompt = buildCompactPrompt(texto);
-      const result = await model.generateContentStream(prompt);
+      const result = await activeModel.generateContentStream(prompt);
       let buffer = '';
       const sent = {};
 
@@ -393,13 +398,18 @@ export async function parseDemandWithAIStream(textoLivre, options = {}) {
       const demanda = await Promise.race([runStream(), timeoutPromise]);
       clearTimeout(timerId);
       const elapsedMs = Math.round(performance.now() - t0);
-      return { demanda, usedFallback: false, cached: false, elapsedMs };
+      return { demanda, usedFallback: false, cached: false, elapsedMs, modelUsed: modelName };
     } catch (err) {
       clearTimeout(timerId);
       lastErr = err;
-      const timeLeft = deadline - Date.now();
-      if (timeLeft <= 800 || attempt >= 4) break;
-      await new Promise((r) => setTimeout(r, 600));
+      const errMsg = String(err?.message || '');
+      const isQuotaOrRate = errMsg.includes('429') || errMsg.toLowerCase().includes('quota') || errMsg.toLowerCase().includes('rate');
+      // Se deu 429 (limite/minuto do modelo) ou falhou, avança para o próximo modelo da cascata
+      modelIdx += 1;
+      if (modelIdx >= MODELOS_FALLBACK.length || deadline - Date.now() <= 500) break;
+      if (!isQuotaOrRate) {
+        await new Promise((r) => setTimeout(r, 400));
+      }
     }
   }
 
@@ -512,6 +522,7 @@ export async function parseBatchDemandsWithAI(textoLivre) {
   const dataISO = addDaysISO(0);
   const prompt = `Extraia todas as demandas distintas do texto abaixo (pt-BR). Hoje: ${dataISO}.
 Se houver apenas 1 demanda, retorne lista com 1 item. Máximo 10 itens.
+Nunca use palavras genéricas de ditado ("demanda", "atividade", "tarefa", "pendência") no título ou na descrição; vá direto ao assunto (ex.: "Relatório de marketing").
 Texto: """${texto}"""`;
 
   try {

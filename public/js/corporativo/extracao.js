@@ -109,7 +109,7 @@ export async function extractTasksFromMeetingText(textoBruto, { dataReuniao } = 
     'Regras obrigatórias:',
     '- NUNCA invente responsáveis, prazos ou tarefas que não estejam no texto. Se não foi dito, retorne null.',
     '- Resolva expressões como "até sexta", "semana que vem", "dia 20" para formato ISO YYYY-MM-DD.',
-    '- Cada tarefa deve ter título curto e claro (até 70 caracteres), descrição objetiva, prioridade (baixa/media/alta/urgente) e o trecho exato do texto que originou a tarefa.',
+    '- Cada tarefa deve ter título curto e claro (até 70 caracteres), descrição objetiva, prioridade (baixa/media/alta/urgente) e o trecho exato do texto que originou a tarefa. Nunca inclua palavras genéricas de ditado ("demanda", "atividade", "tarefa", "pendência") no título ou na descrição.',
     '',
     'TEXTO:',
     texto

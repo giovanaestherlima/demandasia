@@ -58,8 +58,7 @@ let ai = null;
 if (isFirebaseConfigured()) {
   app = initializeApp(firebaseConfig);
 
-  const isPreviewChannel = window.location.hostname.includes('--');
-  if (RECAPTCHA_ENTERPRISE_SITE_KEY && !isPreviewChannel) {
+  if (RECAPTCHA_ENTERPRISE_SITE_KEY) {
     const isLocalhost =
       window.location.hostname === 'localhost' ||
       window.location.hostname === '127.0.0.1';
